@@ -1,0 +1,5 @@
+{
+    "require": {
+        "bazarin/bazarin-php-library": "^1.1"
+    }
+}

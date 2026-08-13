@@ -1,0 +1,20 @@
+{
+    "name": "bazarin/bazarin-php-library",
+    "description": "A PHP library for database operations, file management, API calls, and security utilities.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Bazarin",
+            "email": "bazarintechnologies@gmail.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Bazarin\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=7.4"
+    }
+}

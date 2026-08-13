@@ -1,0 +1,49 @@
+{
+    "packages": [
+        {
+            "name": "bazarin/bazarin-php-library",
+            "version": "v1.1.0",
+            "version_normalized": "1.1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/BazarinTech/bazarin-php-v2.git",
+                "reference": "4d6a871f8b787bafa3fa3c9b88bfd33714efd4d4"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/BazarinTech/bazarin-php-v2/zipball/4d6a871f8b787bafa3fa3c9b88bfd33714efd4d4",
+                "reference": "4d6a871f8b787bafa3fa3c9b88bfd33714efd4d4",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.4"
+            },
+            "time": "2025-02-23T09:20:10+00:00",
+            "type": "library",
+            "installation-source": "dist",
+            "autoload": {
+                "psr-4": {
+                    "Bazarin\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Bazarin",
+                    "email": "bazarintechnologies@gmail.com"
+                }
+            ],
+            "description": "A PHP library for database operations, file management, API calls, and security utilities.",
+            "support": {
+                "issues": "https://github.com/BazarinTech/bazarin-php-v2/issues",
+                "source": "https://github.com/BazarinTech/bazarin-php-v2/tree/v1.1.0"
+            },
+            "install-path": "../bazarin/bazarin-php-library"
+        }
+    ],
+    "dev": true,
+    "dev-package-names": []
+}

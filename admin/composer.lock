@@ -1,0 +1,59 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "69edde124129fb8b8b1c6c0e03627642",
+    "packages": [
+        {
+            "name": "bazarin/bazarin-php-library",
+            "version": "v1.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/BazarinTech/bazarin-php-v2.git",
+                "reference": "4d6a871f8b787bafa3fa3c9b88bfd33714efd4d4"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/BazarinTech/bazarin-php-v2/zipball/4d6a871f8b787bafa3fa3c9b88bfd33714efd4d4",
+                "reference": "4d6a871f8b787bafa3fa3c9b88bfd33714efd4d4",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.4"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Bazarin\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Bazarin",
+                    "email": "bazarintechnologies@gmail.com"
+                }
+            ],
+            "description": "A PHP library for database operations, file management, API calls, and security utilities.",
+            "support": {
+                "issues": "https://github.com/BazarinTech/bazarin-php-v2/issues",
+                "source": "https://github.com/BazarinTech/bazarin-php-v2/tree/v1.1.0"
+            },
+            "time": "2025-02-23T09:20:10+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {},
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": {},
+    "platform-dev": {},
+    "plugin-api-version": "2.6.0"
+}
