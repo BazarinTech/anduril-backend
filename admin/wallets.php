@@ -166,7 +166,7 @@
                                                         item.editing = <?= $isEdit ?>;
                                                         $nextTick(() => $refs.income.focus());
                                                     " x-show="!item.editing"></span>
-                                                    <input type="number" class="form-input" x-ref="income" x-model="item.income" x-on:keydown.enter="item.editing = false; updater(item.id, 'total_income', item.income);" x-show="item.editing">
+                                                    <input type="number" class="form-input" x-ref="income" x-model="item.income" x-on:keydown.enter="item.editing = false; updater(item.id, 'income', item.income);" x-show="item.editing">
                                                 </td>
                                                 <td>
                                                     <span x-text="item.downline" x-on:dblclick="

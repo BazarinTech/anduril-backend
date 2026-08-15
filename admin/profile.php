@@ -7,7 +7,20 @@ if (isset($_POST['update-details'])) {
     $uname = $_POST['username'];
     $email = $_POST['email'];
     $phone = $_POST['phone'];
-    $update = $query->update('admins', ['name' => $name, 'username' => $uname, 'email' => $email, 'phone' => $phone], ['ID' => $adminID]);
+
+    /**
+     * Phase 4.15. This wrote every field to `admins` keyed on
+     * `['ID' => $adminID]` -- but $adminID is `$_SESSION['userID']`, a
+     * users.ID. It only ever hit the right row when admins.ID and users.ID
+     * happened to coincide, and edited an unrelated administrator otherwise.
+     *
+     * Name, email and phone belong on `users` (that is where login and
+     * includes/main.php read them from); only the username lives on `admins`.
+     */
+    $query->update('users',  ['name' => $name, 'email' => $email, 'phone' => $phone], ['ID' => $adminID]);
+    $query->update('admins', ['username' => $uname], ['userID' => $adminID]);
+
+    $msg = 'Details updated successfully!';
 }
 if (isset($_POST['update-password'])) {
     $old_pass= $_POST['old-pass'];
@@ -22,6 +35,7 @@ if (isset($_POST['update-password'])) {
         if ($new_pass == $con_pass) {
             if (strlen($new_pass) > 7) {
                 $query->update('users', ['passwrd' => password_hash($new_pass, PASSWORD_DEFAULT)], ['ID' => $adminID]);
+                session_regenerate_id(true);
                 $msg = 'Password updated successfully!';
             }else{
                 $error = 'Password must be at least 8 characters long';

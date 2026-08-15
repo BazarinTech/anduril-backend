@@ -7,7 +7,9 @@ $field = $data['field'];
 $value = $data['value'];
 
 // Sanitize field names to prevent SQL injection
-$allowedFields = ["email",  "status", "type", "fees", "description", "account", "amount"];
+// Phase 4.11 -- `email` is the owning user's address, joined in for display.
+// It is not a column here, and the field is now read-only in the UI.
+$allowedFields = ["status", "type", "fees", "description", "account", "amount", "method"];
 if (!in_array($field, $allowedFields, true)) {
     http_response_code(400);
     $fileGetContent->send_content(["success" => false, "message" => "Invalid field"]);

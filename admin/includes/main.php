@@ -35,6 +35,10 @@ $admin_role  = $admin['roles'] ?? '';
 $admin_phone = $userRow['phone'] ?? '';
 $admin_pass  = $userRow['passwrd'] ?? '';
 $admin_uname = $admin['username'] ?? '';
+// Phase 4.15 -- admin/profile.php renders $admin_name in two places and
+// nothing ever defined it, so the name field came up blank with a warning.
+// It comes from the users row, which is where profile.php writes it back.
+$admin_name  = $userRow['name'] ?? '';
 
 
 if (preg_match_all('/\[(.*?)\]/', $permissions, $matches)) {
@@ -80,8 +84,10 @@ $total_active_users = count($query->select('users', '*', ['status' => 'Active'])
 $users = $query->select('users', '*', [], ['column' => 'ID', 'direction' => 'desc']);
 $users_joined_today = 0;
 foreach ($users as $row) {
-    $time_def = time() - strtotime($row['date_created']);
-    $time_def = $time_def / 84600;
+    // 86400 seconds in a day. This read 84600 -- a digit transposition that
+    // shortened the window by half an hour. Combined with the timezone skew
+    // fixed in Phase 2, this counter was reporting nonsense; it works now.
+    $time_def = (time() - strtotime($row['date_created'])) / 86400;
     if ($time_def <= 1) {
         $users_joined_today++;
     }
@@ -133,7 +139,7 @@ foreach ($wallets as $row) {
     }
     $wallets_records[] = [
         'id' => $row['ID'],
-        'email' => $user_details[0]['email'],
+        'email' => $user_details[0]['email'] ?? '(user removed)',
         'balance' => 'Kes '.number_format($row['balance'], 2),
         'income' => 'Kes '.number_format($row['income'], 2),
         'downline' => 'Kes '.number_format($row['invite_income'], 2),
@@ -143,20 +149,26 @@ foreach ($wallets as $row) {
 }
 
 //order records
-$order_records = [];
+// Phase 4.10 -- this was initialised as $order_records and appended to as
+// $orders_records. PHP created the second one on first append, so it worked
+// by accident, and orders.php rendered an undefined variable whenever there
+// were no investment orders at all.
+$orders_records = [];
 $orders = $query->select('orders', '*', ['type' => 'investment'], ['column' => 'ID', 'direction' => 'desc']);
 foreach ($orders as $row) {
     $product = $query->select('products', '*', ['ID' => $row['prodID']]);
     $user_prod = $query->select('users', '*', ['ID' => $row['userID']]);
     $orders_records[] = [
         'id' => $row['ID'],
-        'name' => $product[0]['name'],
-        'user' => $user_prod[0]['email'],
-        'price' => 'Kes '.number_format($row['amount'], 2),
-        'income' => 'Kes '.number_format($row['returns'], 2),
+        // A deleted user or product leaves the order behind; render a
+        // placeholder instead of dereferencing a missing row.
+        'name' => $product[0]['name'] ?? '(product removed)',
+        'user' => $user_prod[0]['email'] ?? '(user removed)',
+        'price' => 'Kes '.number_format(money($row['amount']), 2),
+        'income' => 'Kes '.number_format(money($row['returns']), 2),
         'status' => $row['status'],
         'time' => $row['time'],
-        'rate' => $product[0]['returns']
+        'rate' => $product[0]['returns'] ?? 0
     ];
 }
 
@@ -201,7 +213,7 @@ foreach ($transactions as $row) {
     $user_trans = $query->select('users', '*', ['ID' => $row['userID']]);
     $transactions_records[] = [
         'id' => $row['ID'],
-        'email' => $user_trans[0]['email'],
+        'email' => $user_trans[0]['email'] ?? '(user removed)',
         'amount' => 'Kes '.$row['amount'],
         'type' => $row['type'],
         'status' => $row['status'],
@@ -220,7 +232,7 @@ foreach ($withdraw_transactions as $row) {
     $user_trans = $query->select('users', '*', ['ID' => $row['userID']]);
     $withdraw_records[] = [
         'id' => $row['ID'],
-        'email' => $user_trans[0]['email'],
+        'email' => $user_trans[0]['email'] ?? '(user removed)',
         'amount' => 'Kes '.$row['amount'] - $row['fees'],
         'type' => $row['type'],
         'status' => $row['status'],
@@ -240,7 +252,7 @@ foreach ($deposit_transactions as $row) {
     $user_trans = $query->select('users', '*', ['ID' => $row['userID']]);
     $deposits_records[] = [
         'id' => $row['ID'],
-        'email' => $user_trans[0]['email'],
+        'email' => $user_trans[0]['email'] ?? '(user removed)',
         'amount' => 'Kes '.$row['amount'] - $row['fees'],
         'type' => $row['type'],
         'status' => $row['status'],
@@ -290,10 +302,10 @@ foreach ($incentive_requests as $row) {
     $user_details = $query->select('users', '*', ['ID' => $row['userID']]);
     $incentive_applications[] = [
             'ID' => $row['ID'],
-            'Incentive' => $incentive_details[0]['name'],
+            'Incentive' => $incentive_details[0]['name'] ?? '(incentive removed)',
             'name' => $row['name'],
             'phone' => $row['phone'],
-            'email' => $user_details[0]['email'],
+            'email' => $user_details[0]['email'] ?? '(user removed)',
             'personal_ID' => $row['personal_ID'],
             'date' => $row['date'],
             'status' => $row['status']

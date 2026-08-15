@@ -7,7 +7,8 @@ $field = $data['field'];
 $value = $data['value'];
 
 // Sanitize field names to prevent SQL injection
-$allowedFields = ["name",  "status", "salary", "level", "referrals", "returns"];
+// Phase 4.11 -- `returns` is a products column, not an incentives one.
+$allowedFields = ["name", "status", "salary", "level", "referrals", "bonusItem"];
 if (!in_array($field, $allowedFields, true)) {
     http_response_code(400);
     $fileGetContent->send_content(["success" => false, "message" => "Invalid field"]);

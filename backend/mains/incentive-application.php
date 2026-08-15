@@ -73,10 +73,14 @@ if (isset($data['userID'])) {
             'message' => 'Invalid token signature'
         ]);
     } catch (\Throwable $e) {
+    // Phase 5.6 -- this returned $e->getMessage() to the client as a 'debug'
+    // field. A PDO exception message carries the failing SQL, and the token
+    // messages describe the signing setup; neither belongs in a response.
+    error_log('[incentive-application] ' . $e->getMessage());
+
     $fileGetContent->send_content([
         'status' => 'Error',
-        'message' => 'Invalid token2',
-        'debug' => $e->getMessage()
+        'message' => 'Could not submit the application. Please try again.'
     ]);
 }
 

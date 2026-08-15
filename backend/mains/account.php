@@ -24,25 +24,63 @@ if (isset($data['userID']) && isset($data['type'])) {
         $type = $data['type'];
 
         if ($type == 'account') {
-            $email = $data['email'];
-            $phone = $data['phone'];
-            $update_account = $query->update('users', ['phone' => $phone], ['ID' => $userID]);
-            if ($update_account) {
+            /**
+             * Phase 4.8. Two problems here.
+             *
+             * The endpoint accepted an `email` and silently ignored it -- only
+             * the phone was ever written, so a user editing their email saw
+             * "updated successfully" and nothing changed.
+             *
+             * And QueryBuilder::update() returns the affected row count, so
+             * saving the same phone number again returns 0 and reported
+             * "Account update failed!" for a request that worked perfectly.
+             * Zero rows changed is success, not failure.
+             */
+            $email = trim((string) ($data['email'] ?? ''));
+            $phone = trim((string) ($data['phone'] ?? ''));
+
+            $changes = [];
+
+            if ($phone !== '') {
+                $changes['phone'] = $phone;
+            }
+
+            if ($email !== '') {
+                if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $fileGetContent->send_content([
+                        'status' => 'Failed',
+                        'message' => 'That email address does not look valid.'
+                    ]);
+                    exit;
+                }
+
+                // Someone else must not already hold it.
+                $taken = $query->select('users', '*', ['email' => $email]);
+
+                if (!empty($taken) && (string) $taken[0]['ID'] !== (string) $userID) {
+                    $fileGetContent->send_content([
+                        'status' => 'Failed',
+                        'message' => 'That email address is already in use.'
+                    ]);
+                    exit;
+                }
+
+                $changes['email'] = $email;
+            }
+
+            if (empty($changes)) {
+                $response = [
+                    'status' => 'Failed',
+                    'message' => 'Nothing to update.'
+                ];
+            } else {
+                $query->update('users', $changes, ['ID' => $userID]);
+
                 $response = [
                     'status' => 'Success',
                     'message' => 'Account updated succefully!'
                 ];
-            }else{
-                $response = [
-                    'status' => 'Failed',
-                    'message' => 'Account update failed!'
-                ];
             }
-            
-            // $response = [
-            //         'status' => 'Success',
-            //         'message' => 'Kindly to update contact our customer support!!'
-            //     ];
         }
 
         if ($type == 'password') {

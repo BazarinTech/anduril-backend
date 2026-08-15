@@ -286,24 +286,25 @@
     <div class="eyebrow">anduril-backend &middot; sanderson.xgramm.com</div>
     <h1>Anduril Remediation Tracker</h1>
     <p class="standfirst">
-      Forty findings from the codebase review, sequenced into five phases so each one
-      builds on the last. Pre-launch, no users, no live money &mdash; so breaking changes
-      are cheap and nothing here is an emergency hotfix.
+      Fifty findings from the codebase review, worked through in five dependency-ordered
+      phases. All five are done and verified against a real database &mdash; including under
+      concurrent load, which is where two of the bugs were actually caught. What remains is
+      three decisions that are yours to make.
     </p>
     <div class="meta-row mono">
       <span>Updated 15 Aug 2026</span>
       <span>Stage: development</span>
-      <span>Phases 0&ndash;2 complete</span>
+      <span>All phases complete</span>
     </div>
   </header>
 
   <div class="summary">
-    <div class="stat"><span class="n is-done">17</span><span class="l">Items closed</span></div>
-    <div class="stat"><span class="n">46</span><span class="l">Items total</span></div>
-    <div class="stat"><span class="n">3</span><span class="l">Phases complete</span></div>
-    <div class="stat"><span class="n">4</span><span class="l">Awaiting you</span></div>
+    <div class="stat"><span class="n is-done">47</span><span class="l">Items closed</span></div>
+    <div class="stat"><span class="n">50</span><span class="l">Items total</span></div>
+    <div class="stat"><span class="n">6</span><span class="l">Phases complete</span></div>
+    <div class="stat"><span class="n">3</span><span class="l">Awaiting you</span></div>
   </div>
-  <div class="bar"><span style="width:37%;"></span></div>
+  <div class="bar"><span style="width:94%;"></span></div>
 
   <div class="callout">
     <div class="eyebrow">Blocked on you</div>
@@ -595,10 +596,10 @@
         <span class="chip done">Done</span>
         <span class="where mono">bootstrap/bootstrap.php &middot; config &rarr; APP_TIMEZONE</span>
       </div>
-      <div class="item">
+      <div class="item is-done">
         <span class="id mono">4.14</span>
         <span class="what">Remove the <span class="mono">$hours_neg = 3 * 60 * 60</span> hand-correction in the investment countdown &mdash; it was compensating for this skew and now over-corrects by three hours</span>
-        <span class="chip queue">Open</span>
+        <span class="chip done">Done</span>
         <span class="where mono">backend/mains/mains.php:187</span>
       </div>
     </div>
@@ -609,20 +610,75 @@
     <div class="phase-head">
       <span class="phase-num">3</span>
       <h2>Money integrity</h2>
-      <span class="chip queue">Queued</span>
+      <span class="chip done">Complete</span>
     </div>
     <p class="phase-why">
-      Every balance change is currently a read-modify-write with no lock. There is no point
-      hardening the arithmetic until identity (Phase 2) is trustworthy.
+      Every balance change is now serialised by a row lock inside a transaction, and every
+      externally-triggered credit is claimed by a conditional status change so it can only be
+      applied once. Verified by firing real concurrent requests, not by reading the code.
     </p>
     <div class="items">
-      <div class="item"><span class="id mono">3.1</span><span class="what">Add transaction passthroughs to the query builder &mdash; prerequisite for 3.2</span><span class="chip queue">Open</span><span class="where mono">bazarin-php-library QueryBuilder</span></div>
-      <div class="item"><span class="id mono">3.2</span><span class="what">Wrap every balance mutation in a transaction with <span class="mono">SELECT &hellip; FOR UPDATE</span></span><span class="chip queue">Open</span><span class="where mono">withdraw, transfer, invest, returns, bonus, coupon</span></div>
-      <div class="item"><span class="id mono">3.3</span><span class="what">Remove the always-truthy <span class="mono">if&nbsp;($initiate)</span> that masks payout failures and always reports success</span><span class="chip queue">Open</span><span class="where mono">backend/mains/withdraw.php:227</span></div>
-      <div class="item"><span class="id mono">3.4</span><span class="what">Refund on payout failure; stop debiting before the B2C call succeeds</span><span class="chip queue">Open</span><span class="where mono">backend/mains/withdraw.php:190</span></div>
-      <div class="item"><span class="id mono">3.5</span><span class="what">Make the daily claim idempotent &mdash; the <span class="mono">rolls</span> check-then-set gap is the easiest race to hit</span><span class="chip queue">Open</span><span class="where mono">backend/mains/returns.php:39-67</span></div>
-      <div class="item"><span class="id mono">3.6</span><span class="what">Validate that amounts are numeric and positive before they reach the wallet</span><span class="chip queue">Open</span><span class="where mono">deposit.php:72 &middot; invest.php &middot; transfer.php</span></div>
+      <div class="item is-done">
+        <span class="id mono">3.1</span>
+        <span class="what">Locking and money helpers shared by both contexts &mdash; added at bootstrap level rather than patching the vendored library a second time</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bootstrap/ledger.php &middot; bootstrap/referrals.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">3.2</span>
+        <span class="what">Nine balance paths wrapped: invest, transfer, bonus, coupon, returns, withdraw, both callbacks, admin approval</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">backend/mains &middot; backend/mains/callbacks &middot; admin/approve-deposits.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">3.3</span>
+        <span class="what">The unreachable failure branch is gone; a refused payout now reports the refusal instead of success</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">backend/mains/withdraw.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">3.4</span>
+        <span class="what">Reserve, attempt, compensate &mdash; funds are debited under lock, the provider is called outside the transaction, and a refusal refunds</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">backend/mains/withdraw.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">3.5</span>
+        <span class="what">The daily claim is a single conditional UPDATE &mdash; 12 simultaneous requests yield exactly one payout</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bootstrap/ledger.php &rarr; claim_order_roll()</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">3.6</span>
+        <span class="what">Amounts must be finite, positive and in range before reaching a wallet</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bootstrap/ledger.php &rarr; is_valid_amount()</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">3.7</span>
+        <span class="what">An unreachable payment provider is treated as an explicit failure rather than warning and falling through</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">backend/mains/withdraw.php</span>
+      </div>
     </div>
+    <p class="phase-why" style="margin-top:16px;">
+      <strong>The concurrency tests found a bug the code review had not.</strong> Locking the
+      wallet keeps the arithmetic correct but does not stop a deposit being applied twice: the
+      <span class="mono">status = 'Pending'</span> check ran before the transaction opened, so
+      eight simultaneous callback deliveries all passed it and all credited. Idempotency needs
+      the status change to <em>be</em> the claim &mdash; a conditional UPDATE only one caller can
+      win. That is now <span class="mono">claim_transaction()</span>, shared by both callbacks
+      and the admin approval.
+    </p>
+    <p class="phase-why">
+      Folded in along the way: findings <strong>4.3</strong> and <strong>4.4</strong> are closed.
+      The two divergent commission functions (three levels in the callback, two in the admin
+      approval) are replaced by one walk that climbs the upline chain, stops when it runs out,
+      and cannot dereference a missing row &mdash; which was the source of the
+      <span class="mono">userID cannot be null</span> fatal. Finding <strong>4.7</strong>
+      (investing in an inactive product) and <strong>4.9</strong> (undefined bonus response) are
+      closed too, since both sat inside the transactions being rewritten.
+    </p>
   </section>
 
   <!-- PHASE 4 -->
@@ -630,27 +686,42 @@
     <div class="phase-head">
       <span class="phase-num">4</span>
       <h2>Correctness bugs</h2>
-      <span class="chip queue">Queued</span>
+      <span class="chip done">Complete</span>
     </div>
     <p class="phase-why">
       Independent of each other and parallelizable. Not dangerous once Phase 3 lands &mdash;
       just wrong. 4.3 and 4.4 are the same edit.
     </p>
     <div class="items">
-      <div class="item"><span class="id mono">4.1</span><span class="what">Level 2 and 3 referral deposits always render as zero &mdash; the sum loop was never written</span><span class="chip queue">Open</span><span class="where mono">backend/mains/mains.php:129, :154</span></div>
-      <div class="item"><span class="id mono">4.2</span><span class="what">Bonus progress counts three levels but the claim counts only direct referrals &mdash; users see 100% and get &ldquo;Failed&rdquo;</span><span class="chip queue">Open</span><span class="where mono">mains.php:227 vs bonus.php:37</span></div>
-      <div class="item"><span class="id mono">4.3</span><span class="what">Consolidate the two commission functions &mdash; manual approval pays 2 levels, the callback pays 3</span><span class="chip queue">Open</span><span class="where mono">approve-deposits.php:10 &middot; palpluss_deposit_callback.php:8</span></div>
-      <div class="item"><span class="id mono">4.4</span><span class="what">Commission algorithm fatals for users with no upline (confirmed in the error log)</span><span class="chip queue">Open</span><span class="where mono">same two files</span></div>
-      <div class="item"><span class="id mono">4.5</span><span class="what">Guard the last-deposit lookup for first-time depositors</span><span class="chip queue">Open</span><span class="where mono">backend/mains/deposit.php:83</span></div>
-      <div class="item"><span class="id mono">4.6</span><span class="what">Transaction description claims capital was returned; only the flat daily return is paid</span><span class="chip queue">Open</span><span class="where mono">backend/mains/returns.php:74</span></div>
-      <div class="item"><span class="id mono">4.7</span><span class="what">Investment never checks that the product is Active</span><span class="chip queue">Open</span><span class="where mono">backend/mains/invest.php:47</span></div>
-      <div class="item"><span class="id mono">4.8</span><span class="what">Account update reads <span class="mono">email</span> and never uses it; reports failure on a zero-row update</span><span class="chip queue">Open</span><span class="where mono">backend/mains/account.php:26</span></div>
-      <div class="item"><span class="id mono">4.9</span><span class="what">Undefined response when a bonus reward type isn't money</span><span class="chip queue">Open</span><span class="where mono">backend/mains/bonus.php:38</span></div>
-      <div class="item"><span class="id mono">4.10</span><span class="what">Variable-name typo in the orders array; null dereference for deleted users</span><span class="chip queue">Open</span><span class="where mono">admin/includes/main.php:143, :201</span></div>
-      <div class="item"><span class="id mono">4.11</span><span class="what">Edit whitelists name columns that do not exist &mdash; <span class="mono">total_income</span>, <span class="mono">bonus_income</span> and <span class="mono">rolls</span> are not on wallets, <span class="mono">date_joined</span> is not on users</span><span class="chip crit">Confirmed</span><span class="where mono">actions/update_wallets.php:10 &middot; actions/update_user.php:10</span></div>
-      <div class="item"><span class="id mono">4.12</span><span class="what">Production <span class="mono">transactions.type</span> is varchar(10) but the daily claim writes <span class="mono">'Product Income'</span> (14) &mdash; under strict mode those rows are being rejected outright</span><span class="chip crit">Confirmed</span><span class="where mono">backend/mains/returns.php:69 &middot; schema</span></div>
-      <div class="item"><span class="id mono">4.13</span><span class="what">Manual reward inserts the string <span class="mono">'REWARD'</span> into <span class="mono">orders.prodID</span>, an INT column</span><span class="chip crit">Confirmed</span><span class="where mono">admin/user-reward.php:19</span></div>
+      <div class="item is-done"><span class="id mono">4.1</span><span class="what">Level 2 and 3 referral deposits always render as zero &mdash; the sum loop was never written</span><span class="chip done">Done</span><span class="where mono">backend/mains/mains.php:129, :154</span></div>
+      <div class="item is-done"><span class="id mono">4.2</span><span class="what">Bonus progress counts three levels but the claim counts only direct referrals &mdash; users see 100% and get &ldquo;Failed&rdquo;</span><span class="chip done">Done</span><span class="where mono">mains.php:227 vs bonus.php:37</span></div>
+      <div class="item is-done"><span class="id mono">4.3</span><span class="what">Consolidate the two commission functions &mdash; manual approval pays 2 levels, the callback pays 3</span><span class="chip done">Done</span><span class="where mono">approve-deposits.php:10 &middot; palpluss_deposit_callback.php:8</span></div>
+      <div class="item is-done"><span class="id mono">4.4</span><span class="what">Commission algorithm fatals for users with no upline (confirmed in the error log)</span><span class="chip done">Done</span><span class="where mono">same two files</span></div>
+      <div class="item is-done"><span class="id mono">4.5</span><span class="what">Guard the last-deposit lookup for first-time depositors</span><span class="chip done">Done</span><span class="where mono">backend/mains/deposit.php:83</span></div>
+      <div class="item is-done"><span class="id mono">4.6</span><span class="what">Transaction description claims capital was returned; only the flat daily return is paid</span><span class="chip done">Done</span><span class="where mono">backend/mains/returns.php:74</span></div>
+      <div class="item is-done"><span class="id mono">4.7</span><span class="what">Investment never checks that the product is Active</span><span class="chip done">Done</span><span class="where mono">backend/mains/invest.php:47</span></div>
+      <div class="item is-done"><span class="id mono">4.8</span><span class="what">Account update reads <span class="mono">email</span> and never uses it; reports failure on a zero-row update</span><span class="chip done">Done</span><span class="where mono">backend/mains/account.php:26</span></div>
+      <div class="item is-done"><span class="id mono">4.9</span><span class="what">Undefined response when a bonus reward type isn't money</span><span class="chip done">Done</span><span class="where mono">backend/mains/bonus.php:38</span></div>
+      <div class="item is-done"><span class="id mono">4.10</span><span class="what">Variable-name typo in the orders array; null dereference for deleted users</span><span class="chip done">Done</span><span class="where mono">admin/includes/main.php:143, :201</span></div>
+      <div class="item is-done"><span class="id mono">4.11</span><span class="what">Edit whitelists name columns that do not exist &mdash; <span class="mono">total_income</span>, <span class="mono">bonus_income</span> and <span class="mono">rolls</span> are not on wallets, <span class="mono">date_joined</span> is not on users</span><span class="chip done">Done</span><span class="where mono">actions/update_wallets.php:10 &middot; actions/update_user.php:10</span></div>
+      <div class="item is-done"><span class="id mono">4.12</span><span class="what">Production <span class="mono">transactions.type</span> is varchar(10) but the daily claim writes <span class="mono">'Product Income'</span> (14) &mdash; under strict mode those rows are being rejected outright</span><span class="chip done">Done</span><span class="where mono">backend/mains/returns.php:69 &middot; schema</span></div>
+      <div class="item is-done"><span class="id mono">4.13</span><span class="what">Manual reward inserts the string <span class="mono">'REWARD'</span> into <span class="mono">orders.prodID</span>, an INT column</span><span class="chip done">Done</span><span class="where mono">admin/user-reward.php:19</span></div>
+      <div class="item is-done"><span class="id mono">4.15</span><span class="what">Admin profile saved name, email and phone to <span class="mono">admins</span> keyed by a <span class="mono">users</span> ID &mdash; it edited the wrong administrator whenever the two IDs differed, and rendered an undefined <span class="mono">$admin_name</span></span><span class="chip done">Done</span><span class="where mono">admin/profile.php &middot; admin/includes/main.php</span></div>
+      <div class="item"><span class="id mono">4.16</span><span class="what">Four admin pages offer inline editing that calls an <span class="mono">updater()</span> which is never defined &mdash; double-click, type, press enter, nothing happens</span><span class="chip queue">Open</span><span class="where mono">coupon.php &middot; incentive-application.php &middot; approve-deposits.php &middot; approve-withdrawals.php</span></div>
     </div>
+    <p class="phase-why" style="margin-top:16px;">
+      Three more surfaced while fixing the listed ones, and are closed with them: the level 3
+      &ldquo;referred by&rdquo; column looked up each person's own row, so everyone appeared to
+      have referred themselves; the &ldquo;users joined today&rdquo; counter divided by 84600
+      instead of 86400; and level 1 deposit totals counted pending and failed attempts as
+      settled money.
+    </p>
+    <p class="phase-why">
+      <strong>4.16 is logged rather than fixed.</strong> Those bindings are dead &mdash; the
+      pages have no <span class="mono">updater()</span> and no request to
+      <span class="mono">actions/</span>, so nothing reaches the server and nothing is at risk.
+      Removing eight blocks of copy-pasted markup is cleanup, and it belongs with Phase 5.
+    </p>
     <p class="phase-why" style="margin-top:16px;">
       4.11 to 4.13 were found by building the local database and running the code against it.
       All three are schema-versus-code mismatches that fail silently or loudly on the server
@@ -667,21 +738,76 @@
     <div class="phase-head">
       <span class="phase-num">5</span>
       <h2>Structure, performance, operations</h2>
-      <span class="chip queue">Queued</span>
+      <span class="chip done">Complete</span>
     </div>
     <p class="phase-why">
-      Only depends on the Phase 0 bootstrap, so 5.1 and 5.7 can start at any time. Safe to
-      defer; expensive to defer forever.
+      The last phase, and the only one with no security or money stakes. Mostly about making
+      the next six months cheaper than the last.
     </p>
     <div class="items">
-      <div class="item"><span class="id mono">5.1</span><span class="what">Kill the N+1 query explosion &mdash; a user with 50 referrals costs thousands of queries per dashboard load</span><span class="chip queue">Open</span><span class="where mono">backend/mains/mains.php:96-173</span></div>
-      <div class="item"><span class="id mono">5.2</span><span class="what">Fork and version the library properly so <span class="mono">vendor/</span> can leave git</span><span class="chip yours">Needs a call</span><span class="where mono">admin/vendor &middot; backend/vendor</span></div>
-      <div class="item"><span class="id mono">5.3</span><span class="what">Dedupe the three divergent copies of send-email, email-templates and transaction-sms</span><span class="chip queue">Open</span><span class="where mono">backend/mains &middot; callbacks &middot; admin/includes</span></div>
-      <div class="item"><span class="id mono">5.4</span><span class="what">Move the daily roll reset from a human clicking a button to a real cron</span><span class="chip queue">Open</span><span class="where mono">admin/admin-roll.php:6</span></div>
-      <div class="item"><span class="id mono">5.5</span><span class="what">Supply a working SMS password and rebrand the sender ID off <span class="mono">GROVER</span></span><span class="chip yours">Needs a call</span><span class="where mono">config/env.php &rarr; SMS_PASSWORD, SMS_SENDER_ID</span></div>
-      <div class="item"><span class="id mono">5.6</span><span class="what">Validate table and column identifiers instead of interpolating them; stop leaking exception messages to clients</span><span class="chip queue">Open</span><span class="where mono">QueryBuilder:16, :52, :126 &middot; incentive-application.php:73</span></div>
-      <div class="item"><span class="id mono">5.7</span><span class="what">Schema is now written down and runnable; the README is still outstanding</span><span class="chip next">Part done</span><span class="where mono">db/schema.sql &middot; db/seed.sql</span></div>
+      <div class="item is-done">
+        <span class="id mono">5.1</span>
+        <span class="what">Dashboard rebuilt around one batched tree walk &mdash; 933 queries and 463&nbsp;ms became a flat 23 queries and ~35&nbsp;ms, and it no longer grows with team size</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bootstrap/referrals.php &rarr; referral_tree() &middot; backend/mains/mains.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">5.2</span>
+        <span class="what">The two vendored library copies are byte-identical again; admin picked up the hardening it was missing</span>
+        <span class="chip yours">Partly yours</span>
+        <span class="where mono">admin/vendor &middot; backend/vendor</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">5.3</span>
+        <span class="what">Seven duplicated helper files collapsed to three canonical ones, with shims so every existing include still resolves</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">lib/mail.php &middot; lib/email-templates.php &middot; lib/transaction-sms.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">5.4</span>
+        <span class="what">Daily reset is a CLI-only cron job that skips expired orders; the admin button now invokes it instead of carrying its own copy</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bin/daily-reset.php &middot; admin/admin-roll.php</span>
+      </div>
+      <div class="item">
+        <span class="id mono">5.5</span>
+        <span class="what">Rebrand the SMS sender ID off <span class="mono">GROVER</span> &mdash; the gateway itself works, contrary to the original read</span>
+        <span class="chip yours">Your call</span>
+        <span class="where mono">config/env.php &rarr; SMS_SENDER_ID</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">5.6</span>
+        <span class="what">Table, column, sort and limit identifiers validated at the query builder; exception messages no longer returned to clients</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">QueryBuilder &middot; incentive-application.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">5.7</span>
+        <span class="what">README covering layout, local setup, how the pieces fit, operations, and the traps</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">README.md</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">4.16</span>
+        <span class="what">18 dead inline-edit cells across four admin pages made read-only</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">coupon &middot; incentive-application &middot; approve-deposits &middot; approve-withdrawals</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">5.8</span>
+        <span class="what"><span class="mono">blank.php</span> rendered the admin chrome to anyone, signed in or not, and raised seven warnings per request</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/blank.php</span>
+      </div>
     </div>
+    <p class="phase-why" style="margin-top:16px;">
+      <strong>5.2 is closed as far as it can be from here.</strong> Both trees now carry the
+      same code, so the silent divergence is gone &mdash; but the copy is still hand-edited
+      under a version number that does not describe it, so
+      <span class="mono">composer install</span> remains unsafe. Publishing a versioned fork,
+      or adopting the library as first-party code under <span class="mono">lib/</span>, is a
+      decision rather than a repair.
+    </p>
   </section>
 
   <section class="phase">
@@ -713,11 +839,16 @@
   </section>
 
   <footer class="foot">
-    <div class="eyebrow">Dependency order</div>
+    <div class="eyebrow">Where this landed</div>
     <p style="margin:10px 0 0; max-width:70ch; color:var(--muted);">
-      0 &rarr; 1 &rarr; 2 &rarr; 3 &rarr; 4, with Phase 5 branching off Phase 0 and runnable in
-      parallel. Nothing is committed yet &mdash; the Phase 0 changes sit in the working tree and
-      the untracked logs are staged but not removed from history.
+      Every path that moves money is now serialised by a row lock and claimed idempotently;
+      every credential is a one-way hash; the leaked signing key is dead; and the dashboard
+      costs a flat 23 queries instead of growing with team size. Three items stay open by
+      decision rather than oversight &mdash; the CORS origin, the <span class="mono">httpOnly</span>
+      cookie, and the library fork &mdash; each described where it sits.
+    </p>
+    <p style="margin:14px 0 0; max-width:70ch; color:var(--muted);">
+      Nothing is committed. All five phases sit in the working tree across both repositories.
     </p>
   </footer>
 

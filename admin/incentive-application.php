@@ -213,39 +213,19 @@ if (isset($_POST['submit'])) {
                                             <tr x-show="showElement" x-data="{ showElement: true }">
                                                 <td x-text="item.ID"></td>
                                                 <td>
-                                                    <span x-text="item.incentive" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.incentive.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="incentive" x-model="item.incentive" x-on:keydown.enter="item.editing = false; updater(item.id, 'incentives_requests', item.incentive);" x-show="item.editing">
+                                                    <span x-text="item.incentive"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.email" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.email.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="email" x-model="item.email" x-on:keydown.enter="item.editing = false; updater(item.id, 'email', item.email);" x-show="item.editing">
+                                                    <span x-text="item.email"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.personal_ID" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.personal_ID.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="personal_ID" x-model="item.personal_ID" x-on:keydown.enter="item.editing = false; updater(item.id, 'account', item.account);" x-show="item.editing">
+                                                    <span x-text="item.personal_ID"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.name" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.name.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="name" x-model="item.name" x-on:keydown.enter="item.editing = false; updater(item.id, 'amount', item.amount);" x-show="item.editing">
+                                                    <span x-text="item.name"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.phone" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.description.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="phone" x-model="item.phone" x-on:keydown.enter="item.editing = false; updater(item.id, 'description', item.description);" x-show="item.editing">
+                                                    <span x-text="item.phone"></span>
                                                 </td>
                                                 
                                                 <td>

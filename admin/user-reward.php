@@ -10,23 +10,53 @@ $isEdit = false;
 if (isset($_POST['submit'])) {
     $userID = $_POST['id'];
     $amount = $_POST['amount'];
-    $wallets = $query->select('wallets', '*', ['userID' => $userID]);
-    $balance = $wallets[0]['balance'];
-    
-    
-    // process reward
-    $balance += $amount;
-    $update_wallet = $query->update('wallets', ['balance' => $balance], ['userID' => $userID]);
-    $insert_order = $query->insert('orders', ['userID' => $userID, 'prodID' => 'REWARD', 'type' => 'reward', 'amount' => $amount]);
-    
-    $insert_transaction = $query->insert('transactions', [
-                'userID'      => $userID,
-                'type'        => 'Bonus',
-                'amount'      => $amount,
-                'description' => 'Reward have been awarded to your account.',
-                'status'      => 'Completed'
-                ]);
-    $msg = "Reward have been awarded";
+
+    /**
+     * Phase 4.13 -- this inserted the string 'REWARD' into `orders.prodID`,
+     * an INT column. Under STRICT_TRANS_TABLES that is error 1366 and the
+     * whole reward failed; without strict mode it silently stored 0. The row
+     * is already distinguished by `type = 'reward'`, so prodID carries no
+     * information here and 0 is the honest value.
+     *
+     * Phase 3 also applies: the balance is read, modified and written, so it
+     * gets the same lock as every other credit.
+     */
+    if (!is_valid_amount($amount)) {
+        $error = 'Please enter a valid reward amount.';
+    } else {
+        $pdo->beginTransaction();
+
+        try {
+            $wallet = wallet_for_update($pdo, $userID);
+
+            if ($wallet === null) {
+                $pdo->rollBack();
+                $error = 'No wallet found for that user.';
+            } else {
+                // process reward
+                $query->update('wallets', ['balance' => money_str(money($wallet['balance']) + money($amount))], ['userID' => $userID]);
+                $insert_order = $query->insert('orders', ['userID' => $userID, 'prodID' => 0, 'type' => 'reward', 'amount' => money_str(money($amount))]);
+
+                $insert_transaction = $query->insert('transactions', [
+                            'userID'      => $userID,
+                            'type'        => 'Bonus',
+                            'amount'      => money_str(money($amount)),
+                            'description' => 'Reward have been awarded to your account.',
+                            'status'      => 'Completed'
+                            ]);
+
+                $pdo->commit();
+                $msg = "Reward have been awarded";
+            }
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log('[user-reward] ' . $e->getMessage());
+            $error = 'Could not award the reward. Please try again.';
+        }
+    }
 
 }
 ?>

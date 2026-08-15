@@ -6,33 +6,11 @@ $msg = '';
 
 $isEdit = false;
 
-//function for income algorithm
-function refferal_algo($query, $userID, $amount){
-    
-    //get uplineID for level 1 from  user detail
-    $users = $query->select('users', '*', ['ID' => $userID]);
-    $uplineID = $users[0]['upline'];
-    
-    //get levels income from database and convert to income amount
-    $controls = $query->select('controls');
-    $control = $controls[0];
-    $level1 = $control['level1'] / 100;
-    $level2 = $control['level2'] / 100;
-    $level1_income = $amount * $level1;
-    $level2_income = $amount * $level2;
-    
-    //get level 1 upline and update its wallet income and balance
-    $users = $query->select('users', '*', ['ID' => $uplineID]);
-    $level1_upline = $users[0];
-    $lv1ID = $level1_upline['ID'];
-    $uplineID_2 = $level1_upline['upline'];
-    $wallets = $query->select('wallets', '*', ['userID' => $lv1ID]);
-    $wallet = $wallets[0];
-    $balance = $wallet['balance'] + $level1_income;
-    $invite_income = $wallet['invite_income'] + $level1_income;
-    $update_1 = $query->update('wallets', ['balance' => $balance, 'invite_income' => $invite_income], ['userID' => $lv1ID]);
-    
-}
+// The two-level refferal_algo() copy that lived here is gone. It disagreed
+// with the three-level version in the deposit callback, so the same deposit
+// paid different commission depending on whether it settled automatically or
+// an admin approved it (finding 4.3). Both now call referral_commission()
+// from bootstrap/referrals.php.
 
 if (isset($_POST['submit'])) {
     $trackingID= $_POST['id'];
@@ -55,21 +33,51 @@ if (isset($_POST['submit'])) {
             if($status == 'Success'){
                 $error = 'Transaction is already approved!';
             }else{
-                //get user wallet and update
-                $wallet = $query->select('wallets', '*', ['userID' => $userID]);
-                $balance = $wallet[0]['balance'] + $amount;
-                $query->update('wallets', ['balance' => $balance], ['userID' => $userID]);
-                
-                //update transaction status
-                $query->update('transactions', ['status' => $action], ['trackingID' => $trackingID]);
-                
-                //refferal income
-                refferal_algo($query, $userID, $amount);
-                
-                $body = deposit_template($user_details[0]['name'], $amount, $transaction['method']);
-                $email_res = send_email($user_details[0]['email'], 'Deposit Recieved Successfully', $body);
-                
-                $msg = "Transaction approved successfully!";
+                /**
+                 * Phase 3.2 -- same atomic credit as the automatic callback.
+                 * The status check above and the credit below were separate
+                 * statements, so two admins clicking Approve on the same
+                 * pending deposit could both pass the check and credit it
+                 * twice. The UPDATE now only matches a row that is still
+                 * unapproved, and the wallet is locked for the arithmetic.
+                 */
+                $pdo->beginTransaction();
+
+                try {
+                    // Same claim primitive the payment callbacks use, so a
+                    // double-clicked Approve cannot credit twice.
+                    if (!claim_transaction($pdo, $trackingID, $status, 'Success')) {
+                        $pdo->rollBack();
+                        $error = 'Transaction is already approved!';
+                    } else {
+                        $wallet = wallet_for_update($pdo, $userID);
+
+                        if ($wallet === null) {
+                            $pdo->rollBack();
+                            $error = 'No wallet found for that user!';
+                        } else {
+                            $query->update('wallets', ['balance' => money_str(money($wallet['balance']) + money($amount))], ['userID' => $userID]);
+
+                            //refferal income
+                            referral_commission($pdo, $query, $userID, $amount);
+
+                            $pdo->commit();
+
+                            // Email after the commit -- SMTP must not hold a row lock.
+                            $body = deposit_template($user_details[0]['name'], money_str(money($amount)), $transaction['method']);
+                            $email_res = send_email($user_details[0]['email'], 'Deposit Recieved Successfully', $body);
+
+                            $msg = "Transaction approved successfully!";
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+
+                    error_log('[approve-deposits] ' . $e->getMessage());
+                    $error = 'Could not approve the transaction. Please try again.';
+                }
             }
             
         }else{
@@ -264,39 +272,19 @@ if (isset($_POST['submit'])) {
                                             <tr x-show="showElement" x-data="{ showElement: true }">
                                                 <td x-text="item.id"></td>
                                                 <td>
-                                                    <span x-text="item.trackingID" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.trackingID.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="type" x-model="item.trackingID" x-on:keydown.enter="item.editing = false; updater(item.id, 'type', item.trackingID);" x-show="item.editing">
+                                                    <span x-text="item.trackingID"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.email" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.email.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="email" x-model="item.email" x-on:keydown.enter="item.editing = false; updater(item.id, 'email', item.email);" x-show="item.editing">
+                                                    <span x-text="item.email"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.account" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.email.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="tel" class="form-input" x-ref="account" x-model="item.account" x-on:keydown.enter="item.editing = false; updater(item.id, 'account', item.account);" x-show="item.editing">
+                                                    <span x-text="item.account"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.amount" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.amount.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="number" class="form-input" x-ref="amount" x-model="item.amount" x-on:keydown.enter="item.editing = false; updater(item.id, 'amount', item.amount);" x-show="item.editing">
+                                                    <span x-text="item.amount"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.description" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.description.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="description" x-model="item.description" x-on:keydown.enter="item.editing = false; updater(item.id, 'description', item.description);" x-show="item.editing">
+                                                    <span x-text="item.description"></span>
                                                 </td>
                                                 
                                                 <td>

@@ -9,82 +9,9 @@ include '../transaction-sms.php';
 // Runs before any parsing so a forged body never reaches the wallet logic.
 verify_callback_request('palpluss_deposit');
 
-//function for income algorithm
-function refferal_algo($query, $userID, $amount){
-    
-    //get uplineID for level 1 from  user detail
-    $users = $query->select('users', '*', ['ID' => $userID]);
-    $uplineID = $users[0]['upline'];
-    
-    //get levels income from database and convert to income amount
-    $controls = $query->select('controls');
-    $control = $controls[0];
-    $level1 = $control['level1'] / 100;
-    $level2 = $control['level2'] / 100;
-    $level3 = $control['level3'] / 100;
-    $level1_income = $amount * $level1;
-    $level2_income = $amount * $level2;
-    $level3_income = $amount * $level3;
-    
-    //get level 1 upline and update its wallet income and balance
-    $users = $query->select('users', '*', ['ID' => $uplineID]);
-    $level1_upline = $users[0];
-    $lv1ID = $level1_upline['ID'];
-    $uplineID_2 = $level1_upline['upline'];
-    $wallets = $query->select('wallets', '*', ['userID' => $lv1ID]);
-    $wallet = $wallets[0];
-    $balance = $wallet['balance'] + $level1_income;
-    $invite_income = $wallet['invite_income'] + $level1_income;
-    $update_1 = $query->update('wallets', ['balance' => $balance, 'invite_income' => $invite_income], ['userID' => $lv1ID]);
-    $insert_transaction = $query->insert('transactions', [
-                'userID'      => $lv1ID,
-                'type'        => 'Commission',
-                'amount'      => $level1_income,
-                'description' => 'Commission from referral of user ' . $userID . '. Amount of ' . $level1_income . ' has been credited to your wallet.',
-                'status'      => 'Completed'
-            ]);
-
-    //get level 2 upline and update its wallet income and balance
-    if($uplineID_2 != 0){
-        $users = $query->select('users', '*', ['ID' => $uplineID_2]);
-        $level2_upline = $users[0];
-        $lv2ID = $level2_upline['ID'];
-        $wallets = $query->select('wallets', '*', ['userID' => $lv2ID]);
-        $wallet = $wallets[0];
-        $balance = $wallet['balance'] + $level2_income;
-        $invite_income = $wallet['invite_income'] + $level2_income;
-        $update_2 = $query->update('wallets', ['balance' => $balance, 'invite_income' => $invite_income], ['userID' => $lv2ID]);
-        $insert_transaction = $query->insert('transactions', [
-                'userID'      => $lv2ID,
-                'type'        => 'Commission',
-                'amount'      => $level2_income,
-                'description' => 'Commission from referral of user ' . $userID . '. Amount of ' . $level2_income . ' has been credited to your wallet.',
-                'status'      => 'Completed'
-            ]);
-    }
-    //get level 3 upline and update its wallet income and balance
-    $users = $query->select('users', '*', ['ID' => $uplineID_2]);
-    $level2_upline = $users[0];
-    $uplineID_3 = $level2_upline['upline'];
-    if($uplineID_3 != 0){
-        $users = $query->select('users', '*', ['ID' => $uplineID_3]);
-        $level3_upline = $users[0];
-        $lv3ID = $level3_upline['ID'];
-        $wallets = $query->select('wallets', '*', ['userID' => $lv3ID]);
-        $wallet = $wallets[0];
-        $balance = $wallet['balance'] + $level3_income;
-        $invite_income = $wallet['invite_income'] + $level3_income;
-        $update_3 = $query->update('wallets', ['balance' => $balance, 'invite_income' => $invite_income], ['userID' => $lv3ID]);
-        $insert_transaction = $query->insert('transactions', [
-                'userID'      => $lv3ID,
-                'type'        => 'Commission',
-                'amount'      => $level3_income,
-                'description' => 'Commission from referral of user ' . $userID . '. Amount of ' . $level3_income . ' has been credited to your wallet.',
-                'status'      => 'Completed'
-            ]);
-    }
-    
-}
+// refferal_algo() lived here as a 90-line copy that paid three levels, while
+// admin/approve-deposits.php carried a two-level copy of the same thing. Both
+// are replaced by referral_commission() in bootstrap/referrals.php.
 
 //get data posted remotely
 $data = $fileGetContent->get_content();
@@ -142,37 +69,85 @@ $data = $fileGetContent->get_content();
     }
 
     if ($status == 'SUCCESS') {
-        $status = "Success";
-        
-        if(count($transactions)){
-            
-            $userID = $transaction['userID'];
-            $amount = $transaction['amount'];
-            //get user wallet and update
-            $wallet = $query->select('wallets', '*', ['userID' => $userID]);
-            $balance = $wallet[0]['balance'] + $amount;
-            $query->update('wallets', ['balance' => $balance], ['userID' => $userID]);
-            
-            // get user details
-            $user_details = $query->select('users', '*', ['ID' => $userID]);
-            
-            //update transaction status
-            $query->update('transactions', ['status' => $status, 'description' => $reference], ['trackingID' => $trackingID]);
-            
+        $userID = $transaction['userID'];
+        $amount = money($transaction['amount']);
+
+        /**
+         * Phase 3.2 -- the credit, the status flip and the upline commission
+         * are one atomic unit.
+         *
+         * Two things made this dangerous before. The depositor's wallet was
+         * read and written without a lock, so a deposit landing at the same
+         * moment as any other credit could lose one of them. And the commission
+         * walk wrote to three more wallets with no lock at all -- an active
+         * upline collecting their own returns while a downline deposited could
+         * silently drop either amount.
+         *
+         * Marking the transaction Success inside the same transaction is what
+         * makes a replayed callback harmless: the row is only selected while
+         * still Pending, so the second delivery finds nothing to do.
+         */
+        $pdo->beginTransaction();
+
+        try {
+            // Claim the row first. The SELECT above filtered on status
+            // 'Pending', but it ran before this transaction opened, so
+            // simultaneous deliveries all passed it. Only the caller whose
+            // UPDATE actually moves the row may credit anything.
+            if (!claim_transaction($pdo, $trackingID, 'Pending', 'Success', $reference)) {
+                $pdo->rollBack();
+                error_log("[palpluss_deposit] {$trackingID} already settled; ignoring duplicate delivery");
+                echo json_encode(['status' => 'ok', 'message' => 'Already processed']);
+                exit;
+            }
+
+            $wallet = wallet_for_update($pdo, $userID);
+
+            if ($wallet === null) {
+                $pdo->rollBack();
+                error_log("[palpluss_deposit] no wallet for user {$userID} on {$trackingID}");
+                http_response_code(500);
+                echo json_encode(['status' => 'error', 'message' => 'Wallet missing']);
+                exit;
+            }
+
+            $query->update('wallets', ['balance' => money_str(money($wallet['balance']) + $amount)], ['userID' => $userID]);
+            $query->update('transactions', ['status' => 'Success', 'description' => $reference], ['trackingID' => $trackingID]);
+
             //refferal income
-            refferal_algo($query, $userID, $amount);
-            
-            //Send confimation email
-            $body = deposit_template($user_details[0]['name'], $amount, 'M-Pesa');
-            $email_res = send_email($user_details[0]['email'], 'Deposit Recieved Successfully', $body);
-            
-            // // Send sms
-            // $message = "Congratulations your deposit of amount KSH ".$amount." have been recieved successfully. Mpesa Ref ".$reference;
-            // $sms_res = sendSMS($account, $query, $curl, $message);
+            $paid = referral_commission($pdo, $query, $userID, $amount);
+
+            $pdo->commit();
+
+            error_log("[palpluss_deposit] credited {$amount} to user {$userID}; commission paid to " . count($paid) . " upline(s)");
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log("[palpluss_deposit] credit failed for {$trackingID}: " . $e->getMessage());
+
+            // Leave the row Pending and fail loudly so the provider retries
+            // rather than us acknowledging a deposit we did not apply.
+            http_response_code(500);
+            echo json_encode(['status' => 'error', 'message' => 'Could not apply deposit']);
+            exit;
         }
-        
+
+        // Email is sent after the commit -- SMTP is slow and must never hold a
+        // row lock, and a bounced email should not roll back a real deposit.
+        $user_details = $query->select('users', '*', ['ID' => $userID]);
+
+        if (!empty($user_details)) {
+            $body = deposit_template($user_details[0]['name'], money_str($amount), 'M-Pesa');
+            $email_res = send_email($user_details[0]['email'], 'Deposit Recieved Successfully', $body);
+        }
+
+        echo json_encode(['status' => 'ok']);
+
     }else{
         //update transaction status
         $query->update('transactions', ['status' => 'Failed'], ['trackingID' => $trackingID]);
+        echo json_encode(['status' => 'ok']);
     }
 }

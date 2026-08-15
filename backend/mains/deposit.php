@@ -78,13 +78,31 @@ if (isset($data)) {
         $control = $controls[0];
         $min = $control['minDep'];
         
-        // Get last deposit details
+        // Phase 3.6 -- validate before anything else looks at the amount.
+        if (!is_valid_amount($amount)) {
+            $fileGetContent->send_content([
+                'status' => 'Failed',
+                'message' => 'Please enter a valid amount.',
+            ]);
+            exit;
+        }
+        $amount = money($amount);
+
+        /**
+         * Phase 4.5 -- a first-time depositor has no previous transaction, and
+         * reading [0] off the empty result produced the "Undefined array key 0"
+         * warnings in backend/mains/error_log on every debut deposit.
+         *
+         * The throttle itself is left commented out as it was found; with the
+         * timezone fix in place it would now actually work, so enabling it is a
+         * product decision rather than a repair.
+         */
         $user_transactions = $query->select('transactions', '*', ['userID' => $userID, 'type' => 'Deposit'], ['direction' => 'desc', 'column' => 'ID']);
-        $last_deposit = $user_transactions[0];
-        
-        // Now ensure that last deposit must take more than 10 seconds before initating another one 
-        $time_diff = time() - strtotime($last_deposit['time']);
-        // if($time_diff < 10){
+        $last_deposit = $user_transactions[0] ?? null;
+
+        // Seconds since the previous deposit attempt; null when this is the first.
+        $time_diff = $last_deposit === null ? null : time() - strtotime($last_deposit['time']);
+        // if($time_diff !== null && $time_diff < 10){
         //     $response = [
         //         'status' => 'Failed',
         //         'message' => 'Next transaction should be initated after 10 seconds',
@@ -92,9 +110,9 @@ if (isset($data)) {
         //     $fileGetContent->send_content($response);
         //     exit;
         // }
-    
+
         // check if the amount is greater than the minimum deposit
-        if ($amount >= $min) {
+        if ($amount >= money($min)) {
             
             if($method == 'mpesa'){
                 $response = mpesa_auto($query, $userID, $amount, $account, $curl, $trackingID);

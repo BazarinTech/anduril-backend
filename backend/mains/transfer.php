@@ -39,20 +39,26 @@ if (isset($data)) {
         $recipient = $data['recipient'];
         $method = $data['method'];
 
+        // Phase 3.6 -- a negative amount here used to move money the wrong way:
+        // the sender's balance went up and the recipient's down.
+        if (!is_valid_amount($amount)) {
+            $fileGetContent->send_content([
+                'status' => 'Failed',
+                'message' => 'Please enter a valid amount.',
+            ]);
+            exit;
+        }
+        $amount = money($amount);
+
         //get transaction controls from database
         $controls = $query->select('controls');
         $control = $controls[0];
         $min = $control['minTransfer'];
 
-         //get user wallet details
-        $user_wallet = $query->select('wallets', '*', ['userID' => $userID]);
-        $user_wallet = $user_wallet[0];
-        $balance = $user_wallet['balance'];
-
         // Declare fees and total amount to be charges
-        $fees = $amount * $control['tranFee'] / 100;
+        $fees = $amount * money($control['tranFee']) / 100;
         $total_charge = $amount + $fees;
-        
+
         // Get recipient details 
         $recipient_details = $query->selectOR('users', '*', ['username' => $recipient, 'email' => $recipient]);
         
@@ -78,43 +84,89 @@ if (isset($data)) {
             exit;
         }
 
-        $recipient_wallet = $query->select('wallets', '*', ['userID' => $recipient_details[0]['ID']]);
+        $recipientID = $recipient_details[0]['ID'];
 
-        //check if user account balance is sufficient
-        if($balance >= $total_charge){
-            
-            //check if the amount is greater than the minimum deposit
-            if ($amount >= $min) {
+        //check if the amount is greater than the minimum transfer
+        if ($amount < money($min)) {
+            $fileGetContent->send_content([
+                'status' => 'Failed',
+                'message' => 'Minimum transfer is kes '.$min,
+            ]);
+            exit;
+        }
+
+        /**
+         * Phase 3.2 -- both wallets move, so both are locked, and always in
+         * ascending userID order. Locking "sender then recipient" would
+         * deadlock against a simultaneous transfer running the other way;
+         * a fixed order makes the second request queue instead.
+         *
+         * The balance check now happens after the lock. Before, sender and
+         * recipient balances were both read before any write, so two
+         * concurrent transfers out of one account could each see enough funds,
+         * and two transfers *into* one account would overwrite each other --
+         * losing one of the credits outright.
+         */
+        $pdo->beginTransaction();
+
+        try {
+            [$senderWallet, $recipientWallet] = wallets_for_update($pdo, $userID, $recipientID);
+
+            if ($senderWallet === null || $recipientWallet === null) {
+                $pdo->rollBack();
+
+                $fileGetContent->send_content([
+                    'status' => 'Failed',
+                    'message' => 'Wallet not found for one of the accounts.',
+                ]);
+                exit;
+            }
+
+            $balance = money($senderWallet['balance']);
+
+            //check if user account balance is sufficient
+            if($balance >= $total_charge){
 
                 // Initiate transfer tracking ID
                 $trackingID = create_tracking_ID();
-        
+
                 // Process transfer
                 $balance -= $total_charge;
-                $query->update('wallets', ['balance' => $balance], ['userID' => $userID]);
-                $query->update('wallets', ['balance' => $recipient_wallet[0]['balance'] + $amount], ['userID' => $recipient_details[0]['ID']]);
+                $query->update('wallets', ['balance' => money_str($balance)], ['userID' => $userID]);
+                $query->update('wallets', ['balance' => money_str(money($recipientWallet['balance']) + $amount)], ['userID' => $recipientID]);
 
                 // Save to database
-                $initiate1 = $query->insert('transactions', ['userID' => $userID, 'amount' => $total_charge, 'fees' => $fees, 'account' => $recipient, 'trackingID' => $trackingID, 'type' => 'Transfer', 'status' => 'Success', 'method'=> $method]);
-                $initiate2 = $query->insert('transactions', ['userID' => $recipient_details[0]['ID'], 'amount' => $amount, 'fees' => 0, 'account' => $userID, 'trackingID' => $trackingID, 'type' => 'Transfer', 'status' => 'Success', 'method'=> $method]);
+                $initiate1 = $query->insert('transactions', ['userID' => $userID, 'amount' => money_str($total_charge), 'fees' => money_str($fees), 'account' => $recipient, 'trackingID' => $trackingID, 'type' => 'Transfer', 'status' => 'Success', 'method'=> $method]);
+                $initiate2 = $query->insert('transactions', ['userID' => $recipientID, 'amount' => money_str($amount), 'fees' => 0, 'account' => $userID, 'trackingID' => $trackingID, 'type' => 'Transfer', 'status' => 'Success', 'method'=> $method]);
+
+                $pdo->commit();
 
                 $response = [
                     'status' => 'Success',
-                    'message' => 'Transfer made successfully, fee charged Kes '.$fees
+                    'message' => 'Transfer made successfully, fee charged Kes '.money_str($fees)
                 ];
-                
+
             }else{
+                $pdo->rollBack();
+
                 $response = [
                     'status' => 'Failed',
-                    'message' => 'Minimum transfer is kes '.$min,
+                    'message' => 'Insuficient balance to perform this transaction!',
                 ];
             }
-        }else{
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log('[transfer] ' . $e->getMessage());
+
             $response = [
                 'status' => 'Failed',
-                'message' => 'Insuficient balance to perform this transaction!',
+                'message' => 'Could not complete the transfer. Please try again.',
             ];
         }
+
         $fileGetContent->send_content($response);
 
     } catch (ExpiredException $e) {

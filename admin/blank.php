@@ -1,3 +1,17 @@
+<?php
+/**
+ * Blank page scaffold, kept as the starting point for new admin screens.
+ *
+ * It included the sidebar and topbar without including includes/main.php,
+ * which meant two things: it rendered the admin chrome to anyone who asked
+ * for it, signed in or not, and every permission flag the sidebar reads
+ * ($isFinance, $isView) was undefined -- seven warnings per request.
+ *
+ * Copy this file when starting a new page; the include below is what makes
+ * the session, the permission flags and $query available.
+ */
+include 'includes/main.php';
+?>
 <!DOCTYPE html>
 <html lang="en"  :dir="$store.app.direction" x-data="{ direction: $store.app.direction || 'ltr' }" x-bind:dir="direction" class="group/item" :data-mode="$store.app.mode" :data-sidebar="$store.app.sidebarMode">
 

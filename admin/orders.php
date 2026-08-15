@@ -155,13 +155,11 @@
                                                     " x-show="!item.editing"></span>
                                                     <input type="text" class="form-input" x-ref="name" x-model="item.name" x-on:keydown.enter="item.editing = false" x-show="item.editing">
                                                 </td>
-                                                <td>
-                                                    <span x-text="item.user" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.user.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="user" x-model="item.user" x-on:keydown.enter="item.editing = false; updater(item.id, 'email', item.user);" x-show="item.editing">
-                                                </td>
+                                                <?php /* Phase 4.11 -- read-only. This is the owning user's email,
+                                                         joined in for display; `orders` has no email column and
+                                                         reassigning an order by typing an address was never going
+                                                         to work. */ ?>
+                                                <td><span x-text="item.user"></span></td>
                                                 <td>
                                                     <span x-text="item.price" x-on:dblclick="
                                                         item.editing = <?= $isEdit ?>;

@@ -207,25 +207,13 @@ if (isset($_POST['submit'])) {
                                             <tr x-show="showElement" x-data="{ showElement: true }">
                                                 <td x-text="item.ID"></td>
                                                 <td>
-                                                    <span x-text="item.code" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.code.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="code" x-model="item.code" x-on:keydown.enter="item.editing = false; updater(item.id, 'incentives_requests', item.incentive);" x-show="item.editing">
+                                                    <span x-text="item.code"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.amount" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.amount.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="amount" x-model="item.amount" x-on:keydown.enter="item.editing = false; updater(item.id, 'email', item.email);" x-show="item.editing">
+                                                    <span x-text="item.amount"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.expiry" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.expiry.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="expiry" x-model="item.expiry" x-on:keydown.enter="item.editing = false; updater(item.id, 'account', item.account);" x-show="item.editing">
+                                                    <span x-text="item.expiry"></span>
                                                 </td>
                                                 
                                                 <td>
@@ -236,15 +224,10 @@ if (isset($_POST['submit'])) {
                                                     <input type="text" class="form-input" x-ref="time_created" x-model="item.time_created" x-on:keydown.enter="item.editing = false" x-show="item.editing">
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.status" x-bind:class="item.status === 'Active' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'" x-on:dblclick="
-                                                            item.editing = <?= $isEdit ?>;
-                                                            $nextTick(() => $refs.status.focus());
-                                                        " x-show="!item.editing" class='px-2 rounded py-1'></span>
-                                                    <select class="form-select" x-ref="status" x-model="item.status" x-on:keydown.enter="item.editing = false; updater(item.id, 'status', item.status);" x-show="item.editing">
-                                                        <option value='Active'>Active</option>
-                                                        <option value='Inactive'>Inactive</option>
-                                                        <option value='Expired'>Expired</option>
-                                                    </select>
+                                                    <?php /* Phase 4.16 -- read-only. This page has no updater()
+                                                             and no request to actions/, so the edit never did
+                                                             anything but raise a console error. */ ?>
+                                                    <span x-text="item.status" x-bind:class="item.status === 'Active' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'" class='px-2 rounded py-1'></span>
                                                 </td>
                                             </tr>
                                         </template>

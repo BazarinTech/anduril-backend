@@ -154,6 +154,13 @@ $db->getConnection()->exec(
 
 $query = new QueryBuilder($db->getConnection());
 
+// Raw handle for the paths that need row locks and explicit transactions.
+// QueryBuilder cannot express either, and it lives in vendor/.
+$pdo = $db->getConnection();
+
+require_once __DIR__ . '/ledger.php';
+require_once __DIR__ . '/referrals.php';
+
 /**
  * ===========================
  * HELPERS

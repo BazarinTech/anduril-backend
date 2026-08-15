@@ -52,7 +52,18 @@ function mpesa_auto($query, $curl, $phone, $amount, $trackingID){
 
 
     $inititate = $curl->request(env('PALPLUSS_B2C_URL'), 'POST', $data, $headers);
-    
+
+    // An unreachable provider returns null. Treat "no answer" as an explicit
+    // failure rather than reading array keys off it (same guard as
+    // backend/mains/withdraw.php).
+    if (!is_array($inititate)) {
+        error_log('[approve-withdrawals] payout provider returned no parseable response');
+
+        return [
+            'status' => 'Failed',
+            'msg' => 'Payment provider is unreachable. Please try again shortly.',
+        ];
+    }
 
     if (!empty($inititate['success']) && $inititate['success'] === true) {
         $res = [
@@ -62,7 +73,7 @@ function mpesa_auto($query, $curl, $phone, $amount, $trackingID){
     }elseif(isset($inititate['error'])){
         $res = [
             'status' => 'Failed',
-            'msg' => $inititate['error']['message'],
+            'msg' => is_array($inititate['error']) ? ($inititate['error']['message'] ?? 'Payout rejected') : (string) $inititate['error'],
         ];
     }else{
         $res = [
@@ -316,25 +327,13 @@ if (isset($_POST['submit'])) {
                                             <tr x-show="showElement" x-data="{ showElement: true }">
                                                 <td x-text="item.id"></td>
                                                 <td>
-                                                    <span x-text="item.trackingID" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.trackingID.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="type" x-model="item.trackingID" x-on:keydown.enter="item.editing = false; updater(item.id, 'type', item.trackingID);" x-show="item.editing">
+                                                    <span x-text="item.trackingID"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.email" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.email.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="email" x-model="item.email" x-on:keydown.enter="item.editing = false; updater(item.id, 'email', item.email);" x-show="item.editing">
+                                                    <span x-text="item.email"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.account" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.account.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="tel" class="form-input" x-ref="account" x-model="item.account" x-on:keydown.enter="item.editing = false; updater(item.id, 'account', item.account);" x-show="item.editing">
+                                                    <span x-text="item.account"></span>
                                                 </td>
                                                 <td>
                                                     <span x-text="item.method" x-on:dblclick="
@@ -344,18 +343,10 @@ if (isset($_POST['submit'])) {
                                                     <input type="tel" class="form-input" x-ref="method" x-model="item.method" x-on:keydown.enter="item.editing = false;" x-show="item.editing">
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.amount" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.amount.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="number" class="form-input" x-ref="amount" x-model="item.amount" x-on:keydown.enter="item.editing = false; updater(item.id, 'amount', item.amount);" x-show="item.editing">
+                                                    <span x-text="item.amount"></span>
                                                 </td>
                                                 <td>
-                                                    <span x-text="item.fees" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.fees.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="fees" x-model="item.fees" x-on:keydown.enter="item.editing = false; updater(item.id, 'fees', item.fees);" x-show="item.editing">
+                                                    <span x-text="item.fees"></span>
                                                 </td>
                                                 
                                                 <td>

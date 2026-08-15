@@ -42,19 +42,68 @@ $data = $fileGetContent->get_content();
 
     $transaction = $transactions[0];
     $userID = $transaction['userID'];
-    $amount = $transaction['amount'];
+    $amount = money($transaction['amount']);
 
-    if ($status == 'SUCCESS') {
-        //update transaction status
-        $query->update('transactions', ['status' => 'Success', 'description' => $reference], ['trackingID' => $trackingID]);
-        
-    }else{
-         //update transaction status
-        $query->update('transactions', ['status' => 'Failed'], ['trackingID' => $trackingID]);
-        
-        //Get user details and update
-        $wallet = $query->select('wallets', '*', ['userID' => $userID]);
-        $balance = $wallet[0]['balance'] + $amount;
-        $query->update('wallets', ['balance' => $balance], ['userID' => $userID]);
+    /**
+     * Phase 3.2 -- the refund path is the dangerous one here.
+     *
+     * On failure this hands money back, and it did so with an unlocked
+     * read-modify-write. Two deliveries of the same failure callback could
+     * both find the row in Processing and both refund it, paying the user
+     * twice for a payout that never happened. Flipping the status inside the
+     * same transaction closes that window: the row is only selected while
+     * still Processing, so the second delivery matches nothing.
+     */
+    $pdo->beginTransaction();
+
+    try {
+        // The status change is the claim -- see claim_transaction(). Without
+        // it, simultaneous deliveries of one failure callback would each pass
+        // the 'Processing' filter above and each refund the same payout.
+        $targetStatus = ($status == 'SUCCESS') ? 'Success' : 'Failed';
+        $note = ($status == 'SUCCESS') ? $reference : 'Payout failed; amount refunded';
+
+        if (!claim_transaction($pdo, $trackingID, 'Processing', $targetStatus, $note)) {
+            $pdo->rollBack();
+            error_log("[palpluss_b2c] {$trackingID} already settled; ignoring duplicate delivery");
+            echo json_encode(['status' => 'ok', 'message' => 'Already processed']);
+            exit;
+        }
+
+        if ($status == 'SUCCESS') {
+            $pdo->commit();
+
+            error_log("[palpluss_b2c] payout {$trackingID} settled");
+        }else{
+            //Give the reserved funds back
+            $wallet = wallet_for_update($pdo, $userID);
+
+            if ($wallet === null) {
+                $pdo->rollBack();
+                error_log("[palpluss_b2c] REFUND FAILED for {$trackingID}: no wallet for user {$userID}");
+                http_response_code(500);
+                echo json_encode(['status' => 'error', 'message' => 'Wallet missing']);
+                exit;
+            }
+
+            $query->update('wallets', ['balance' => money_str(money($wallet['balance']) + $amount)], ['userID' => $userID]);
+            $pdo->commit();
+
+            error_log("[palpluss_b2c] payout {$trackingID} failed; refunded {$amount} to user {$userID}");
+        }
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        error_log("[palpluss_b2c] could not settle {$trackingID}: " . $e->getMessage());
+
+        // Stay Processing and let the provider retry, rather than acknowledging
+        // a settlement or refund that did not happen.
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'Could not settle payout']);
+        exit;
     }
+
+    echo json_encode(['status' => 'ok']);
 }

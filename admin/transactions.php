@@ -149,13 +149,11 @@
                                         <template x-for="item in paginatedItems" :key="item.id">
                                             <tr x-show="showElement" x-data="{ showElement: true }">
                                                 <td x-text="item.id"></td>
-                                                <td>
-                                                    <span x-text="item.email" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.email.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="email" x-model="item.email" x-on:keydown.enter="item.editing = false; updater(item.id, 'email', item.email);" x-show="item.editing">
-                                                </td>
+                                                <?php /* Phase 4.11 -- read-only. This is the owning user's email,
+                                                         joined in for display; `transactions` has no email column,
+                                                         so editing it only ever produced an error. Change a user's
+                                                         email on the Users page. */ ?>
+                                                <td><span x-text="item.email"></span></td>
                                                 <td>
                                                     <span x-text="item.account" x-on:dblclick="
                                                         item.editing = <?= $isEdit ?>;

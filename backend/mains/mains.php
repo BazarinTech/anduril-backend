@@ -5,6 +5,28 @@ use Firebase\JWT\Key;
 use Firebase\JWT\ExpiredException;
 use Firebase\JWT\SignatureInvalidException;
 
+/**
+ * Total value of a user's *settled* deposits.
+ *
+ * Phase 4.1. The level 1 block summed deposits inline but counted every row
+ * regardless of status, so pending and failed attempts inflated the figure.
+ * The level 2 and level 3 blocks fetched the transactions and then never
+ * summed them at all -- `$l2ref_deps` and `$l3ref_deps` were initialised to
+ * zero and used as-is, so every downline past the first level showed 0
+ * deposits and 0 commission no matter what they had actually paid in.
+ */
+function settled_deposit_total($query, $userID)
+{
+    $rows  = $query->select('transactions', '*', ['userID' => $userID, 'type' => 'Deposit', 'status' => 'Success']);
+    $total = 0;
+
+    foreach ($rows as $row) {
+        $total += money($row['amount']);
+    }
+
+    return $total;
+}
+
 // Get posted json data
 $data = $fileGetContent->get_content();
 
@@ -84,127 +106,125 @@ if (isset($data['userID'])) {
             'withdrawal_name' => $wallets[0]['withdrawal_name'],
         ];
 
-        // Get user's referrals details
-        $referrals = $query->select('users', '*', ['upline' => $userID], ['column' => 'ID', 'direction' => 'desc']);
-        $level1_count = count($referrals);
-        $active_referral = count($query->select('users', '*', ['status' => 'Active', 'upline' => $userID]));
+        // Transaction controls. Read once here -- the old code re-read this
+        // single-row table inside the level 1 loop, once per referral.
+        $controls = $query->select('controls');
+        $control = $controls[0];
+
+        /**
+         * Get user's referrals details.
+         *
+         * Phase 5.1 -- one tree walk in a fixed five queries, replacing nested
+         * loops that re-queried deposits, downline counts and the controls row
+         * for every single member of the team.
+         */
+        $tree = referral_tree($pdo, $userID);
+
+        $level1_count            = count($tree['level1']);
+        $active_referral         = $tree['counts']['actives'];
+        $refferal_count          = $tree['counts']['users'];
+
+        // Direct referrals only -- this is what the previous implementation
+        // reported, and the rewrite deliberately preserves it rather than
+        // quietly redefining a number the app already displays. ($tree also
+        // carries 'total_deposits' for the whole three-level team, if this is
+        // ever meant to mean team-wide instead.)
         $total_refferal_deposits = 0;
+        foreach ($tree['level1'] as $direct) {
+            $total_refferal_deposits += $tree['deposits'][(string) $direct['ID']] ?? 0;
+        }
+
+        $rates = [
+            1 => money($control['level1']) / 100,
+            2 => money($control['level2']) / 100,
+            3 => money($control['level3']) / 100,
+        ];
+
         $level1_downlines = [];
         $level2_downlines = [];
         $level3_downlines = [];
-        $refferal_count = 0;
-        foreach ($referrals as $ref) {
-            $ref_transactions = $query->select('transactions', '*', ['userID' => $ref['ID'], 'type' => 'Deposit']);
-            $ref_deps = 0;
-            $ref_downlines = count($query->select('users', '*', ['upline' => $ref['ID']], ['column' => 'ID', 'direction' => 'desc']));
 
-            foreach ($ref_transactions as $ref_tran) {
-                $total_refferal_deposits += $ref_tran['amount'];
-                $ref_deps += $ref_tran['amount'];
-            }
+        foreach ([1 => 'level1', 2 => 'level2', 3 => 'level3'] as $depth => $key) {
+            $bucket = [];
 
-            $controls = $query->select('controls');
-            $control = $controls[0];
-            $level1 = $control['level1'] / 100;
-            $level1_downlines[] = [
-                'userID' => $ref['ID'],
-                'email' => $ref['email'],
-                'phone' => $ref['phone'],
-                'date_joined' => $ref['date_created'],
-                'status' => $ref['status'],
-                'username' => $ref['username'],
-                'deposits' => $ref_deps,
-                'commission' => $ref_deps * $level1,
-                'downlines' => $ref_downlines,
-                'level' => 'Level 1',
-                'refer' => 'Direct'
-            ];
+            foreach ($tree[$key] as $person) {
+                $id   = (string) $person['ID'];
+                $deps = $tree['deposits'][$id] ?? 0;
 
-            // Get level 2 downlines
-            $level2_refs = $query->select('users', '*', ['upline' => $ref['ID']], ['column' => 'ID', 'direction' => 'desc']);
-            $level2_ref_details = $query->select('users', '*', ['ID' => $ref['ID']], ['column' => 'ID', 'direction' => 'desc']);
-            $level2_rate = $control['level2'] / 100;
-            foreach ($level2_refs as $l2ref) {
-                $l2ref_transactions = $query->select('transactions', '*', ['userID' => $l2ref['ID'], 'type' => 'Deposit']);
-                $l2ref_deps = 0;
-                $l2ref_downlines = count($query->select('users', '*', ['upline' => $l2ref['ID']], ['column' => 'ID', 'direction' => 'desc']));
-                $level2_downlines[] = [
-                    'userID' => $l2ref['ID'],
-                    'email' => $l2ref['email'],
-                    'phone' => $l2ref['phone'],
-                    'date_joined' => $l2ref['date_created'],
-                    'status' => $l2ref['status'],
-                    'username' => $l2ref['username'],
-                    'deposits' => $l2ref_deps,
-                    'commission' => $l2ref_deps * $level2_rate,
-                    'downlines' => $l2ref_downlines,
-                    'level' => 'Level 2',
-                    'refer' => $level2_ref_details[0]['phone']
+                $bucket[] = [
+                    'userID'      => $person['ID'],
+                    'email'       => $person['email'],
+                    'phone'       => $person['phone'],
+                    'date_joined' => $person['date_created'],
+                    'status'      => $person['status'],
+                    'username'    => $person['username'],
+                    'deposits'    => $deps,
+                    'commission'  => $deps * $rates[$depth],
+                    'downlines'   => $tree['downlines'][$id] ?? 0,
+                    'level'       => 'Level ' . $depth,
+                    // Level 1 came from this user directly; deeper members name
+                    // whoever referred them, resolved from rows already loaded.
+                    'refer'       => $depth === 1
+                        ? 'Direct'
+                        : ($tree['phoneById'][(string) $person['upline']] ?? ''),
                 ];
             }
 
-            // Get level 3 downlines
-            $level3_refs = [];
-            foreach ($level2_refs as $l2ref) {
-                $level3_refs = array_merge($level3_refs, $query->select('users', '*', ['upline' => $l2ref['ID']], ['column' => 'ID', 'direction' => 'desc']));
-            }
-            $level3_rate = $control['level3'] / 100;
-            foreach ($level3_refs as $l3ref) {
-                $l3ref_transactions = $query->select('transactions', '*', ['userID' => $l3ref['ID'], 'type' => 'Deposit']);
-                $l3ref_deps = 0;
-                $l3ref_downlines = count($query->select('users', '*', ['upline' => $l3ref['ID']], ['column' => 'ID', 'direction' => 'desc']));
-                $level3_ref_details = $query->select('users', '*', ['ID' => $l3ref['ID']], ['column' => 'ID', 'direction' => 'desc']);
-                $level3_downlines[] = [
-                    'userID' => $l3ref['ID'],
-                    'email' => $l3ref['email'],
-                    'phone' => $l3ref['phone'],
-                    'date_joined' => $l3ref['date_created'],
-                    'status' => $l3ref['status'],
-                    'username' => $l3ref['username'],
-                    'deposits' => $l3ref_deps,
-                    'commission' => $l3ref_deps * $level3_rate,
-                    'downlines' => $l3ref_downlines,
-                    'level' => 'Level 3',
-                    'refer' => $level3_ref_details[0]['phone']
-                ];
-            }
-
-            $refferal_count = $level1_count + count($level2_downlines) + count($level3_downlines);
+            if ($depth === 1) { $level1_downlines = $bucket; }
+            elseif ($depth === 2) { $level2_downlines = $bucket; }
+            else { $level3_downlines = $bucket; }
         }
-        
         // Get investments products and user orders
         $products = $query->select('products', '*', ['status' => 'Active']);
         $investment_orders = $query->select('orders', '*', ['type' => 'investment', 'userID' => $userID], ['column' => 'ID', 'direction' => 'desc']);
+
+        // Phase 5.1 -- every product once, indexed by ID, instead of one query
+        // per order. Retired products are included: an existing order still
+        // needs to render its plan name even after the plan is deactivated.
+        $product_by_id = [];
+        foreach ($query->select('products') as $p) {
+            $product_by_id[(string) $p['ID']] = $p;
+        }
+
         $active_investments = 0;
         $total_return = 0;
         $user_orders = [];
         foreach ($investment_orders as $order) {
             $prodID = $order['prodID'];
-            $user_product = $query->select('products', '*', ['ID' => $prodID]);
+            $user_product = isset($product_by_id[(string) $prodID]) ? [$product_by_id[(string) $prodID]] : [];
             $rem = 0;
             if ($order['status'] == 'Active') {
                 $active_investments++;
-                $hours_neg = 3 * 60 * 60;
-                $total_return += $user_product[0]['returns'];
+                $total_return += money($user_product[0]['returns'] ?? 0);
+
+                /**
+                 * Phase 4.14 -- the `- $hours_neg` term (a flat three hours)
+                 * that used to sit in this sum was compensating for PHP and
+                 * MySQL disagreeing about the timezone by exactly +03:00.
+                 * That cause was fixed in bootstrap.php, so the correction is
+                 * now an over-correction that matures every order three hours
+                 * early. Removed.
+                 */
                 $initial_time = strtotime($order['time']);
-                $final_time = $initial_time + (86400 * $order['duration']) - $hours_neg;
-                $rem = $final_time - time();
-                $rem = $rem / 86400;
+                $final_time = $initial_time + (86400 * (int) $order['duration']);
+                $rem = ($final_time - time()) / 86400;
             }
             
             $user_orders[] = [
                 'ID' => $order['ID'],
-                'product_name' => $user_product[0]['name'],
-                'product_description' => $user_product[0]['description'],
+                // A product deleted out from under an existing order must not
+                // take the whole dashboard down with it.
+                'product_name' => $user_product[0]['name'] ?? '(product removed)',
+                'product_description' => $user_product[0]['description'] ?? '',
                 'product_price' => $order['amount'],
                 'duration' => $order['duration'],
                 'status' => $order['status'],
                 'amount' => $order['amount'],
                 'investment_date' => $order['time'],
                 'total_returns' => $order['returns'],
-                'return_rate' => $user_product[0]['returns'],
+                'return_rate' => $user_product[0]['returns'] ?? 0,
                 'remaining' => $rem,
-                'image' => $user_product[0]['image'],
+                'image' => $user_product[0]['image'] ?? '',
                 'roll' => $order['rolls']
             ];
 
@@ -213,20 +233,23 @@ if (isset($data['userID'])) {
         // Get bonuses
         $bonuses = $query->select('bonus', '*', ['status' => 'Active']);
         $bonus_records = [];
-        foreach ($bonuses as $bonus) {
-            $bonus_orders = $query->select('orders', '*', ['userID' => $userID, 'type' => 'bonus', 'prodID' => $bonus['ID']]);
-            $bonus_count = count($bonus_orders);
-            $progress = 0; 
-            if ($bonus_count > 0) {
-                $isClaimed = true;
-            }else{
-                $isClaimed = false;
-            }
 
-            if ($bonus['type'] == 'users') {
-                $progress = $refferal_count;
-            }elseif ($bonus['type'] == 'actives') {
-                $progress = $active_referral;
+        // Phase 5.1 -- one query for every bonus this user has claimed,
+        // instead of one per bonus on offer.
+        $claimed_bonus_ids = [];
+        foreach ($query->select('orders', '*', ['userID' => $userID, 'type' => 'bonus']) as $claim) {
+            $claimed_bonus_ids[(string) $claim['prodID']] = true;
+        }
+
+        foreach ($bonuses as $bonus) {
+            $progress = 0;
+            $isClaimed = isset($claimed_bonus_ids[(string) $bonus['ID']]);
+
+            // Phase 4.2 -- progress comes from the same counts bonus.php
+            // judges the claim with, so the bar and the button cannot disagree.
+            // The tree is already in hand, so this costs no further queries.
+            if ($bonus['type'] == 'users' || $bonus['type'] == 'actives') {
+                $progress = bonus_progress($pdo, $userID, $bonus['type'], $tree['counts']);
             }
             $bonus_records[] = [
                 'ID' => $bonus['ID'],
@@ -243,21 +266,22 @@ if (isset($data['userID'])) {
 
         }
 
-        // Transaction controls and others
-        $controls = $query->select('controls');
-        $control = $controls[0];
-
         // Get incentives
+        // ($control was read once near the top, before the referral walk.)
         $incentives_records = $query->select('incentives', '*', ['status' => 'Active'], ['column' => 'ID', 'direction' => 'asc']);
         $incentives = [];
+
+        // Phase 5.1 -- one query for this user's applications, rather than one
+        // per incentive on offer.
+        $applied_incentive_ids = [];
+        foreach ($query->select('incentives_requests', '*', ['userID' => $userID]) as $req) {
+            $applied_incentive_ids[(string) $req['incentiveID']] = true;
+        }
+
         foreach ($incentives_records as $row) {
-            $incentive_reqs = $query->select('incentives_requests', '*', ['userID' => $userID, 'incentiveID' => $row['ID']]);
-            if(count($incentive_reqs) > 0){
-                $isClaimed = true;
-            }else{
-                $isClaimed = false;
-            }
-    
+            $isClaimed = isset($applied_incentive_ids[(string) $row['ID']]);
+
+
             $incentives[] = [
                     'name' => $row['name'],
                     'referrals' => $row['referrals'],

@@ -16,7 +16,7 @@ class Curl {
         $this->defaultHeaders = $headers;
     }
 
-    public function enableDebugMode($debug = true) {
+    public function enableDebugMode($debug = false) {
         $this->debug = $debug;
     }
 
@@ -68,26 +68,16 @@ class Curl {
             error_log("Response Code: $httpCode");
             error_log("Response Body: $response");
         }
-
-        // Handle cURL errors
-        // if ($error) {
-        //     throw new RuntimeException("cURL error: $error");
-        // }
-
+         //echo $response;
         // Close connection
         curl_close($ch);
-
-        // Check for HTTP errors
-        // if ($httpCode >= 400) {
-        //     throw new RuntimeException("HTTP Error: $httpCode, Response: $response");
-        // }
 
         // Decode JSON response
         $decodedResponse = json_decode($response, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new RuntimeException("Invalid JSON response: $response");
+            //throw new RuntimeException("Invalid JSON response: $response");
         }
-
+        // print_r($decodedResponse);
         return $decodedResponse;
     }
 }

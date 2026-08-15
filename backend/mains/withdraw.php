@@ -84,7 +84,19 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
     ];
     $inititate = $api->request(env('PALPLUSS_B2C_URL'), 'POST', $data, $headers);
 
-  if ($inititate['success']) {
+    // An unreachable provider makes Curl::request() return null, and reading
+    // ['success'] off it warned and then fell through to the generic failure.
+    // Treat "no answer" as an explicit failure so the caller refunds.
+    if (!is_array($inititate)) {
+        error_log('[withdraw] payout provider returned no parseable response');
+
+        return [
+            'status' => 'Failed',
+            'message' => 'Payment provider is unreachable. Please try again shortly.',
+        ];
+    }
+
+  if (!empty($inititate['success'])) {
         $res = [
             'status' => 'Success',
             'message' => 'Mpesa transaction initiated successfully',
@@ -92,7 +104,7 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
     }elseif(isset($inititate['error'])){
         $res = [
             'status' => 'Failed',
-            'message' => $inititate['error']['message'],
+            'message' => is_array($inititate['error']) ? ($inititate['error']['message'] ?? 'Payout rejected') : (string) $inititate['error'],
         ];
     }else{
         $res = [
@@ -154,6 +166,16 @@ if (isset($data)) {
         $method = $data['method'];
         $pin = $data['pin'];
 
+        // Phase 3.6 -- validate before anything touches a balance.
+        if (!is_valid_amount($amount)) {
+            $fileGetContent->send_content([
+                'status' => 'Failed',
+                'message' => 'Please enter a valid amount.',
+            ]);
+            exit;
+        }
+        $amount = money($amount);
+
         //get transaction controls from database
         $controls = $query->select('controls');
         $control = $controls[0];
@@ -161,8 +183,16 @@ if (isset($data)) {
 
         //get user wallet details
         $user_wallet = $query->select('wallets', '*', ['userID' => $userID]);
-        $user_wallet = $user_wallet[0];
-        $balance = $user_wallet['balance'];
+        $user_wallet = $user_wallet[0] ?? null;
+
+        if ($user_wallet === null) {
+            $fileGetContent->send_content([
+                'status' => 'Error',
+                'message' => 'Wallet not found.'
+            ]);
+            exit;
+        }
+
         $account = $user_wallet['withdrawal_account'];
         $name = $user_wallet['withdrawal_name'];
         $withdrawal_pin = $user_wallet['withdrawal_pin'];
@@ -181,72 +211,119 @@ if (isset($data)) {
         
         // check withdrawal pin (Phase 2.3 -- stored as a hash now)
         if($withdrawal_pin !== '' && password_verify((string) $pin, $withdrawal_pin)){
-            
-             //check if user account balance is sufficient
-        if($balance >= $amount){
 
             //check if the amount is greater than the minimum withdrawal
-            if ($amount >= $min) {
-
-                //initiate withdrawal transaction
-                $trackingID = create_tracking_ID();
-                $fees = $amount * $control['withFee'] / 100;
-                $send_amount = $amount - $fees;
-                $balance -= $amount;
-                $query->update('wallets', ['balance' => $balance], ['userID' => $userID]);
-                
-                $initiate = mpesa_auto($query, $userID, $send_amount, $account, $curl, $trackingID);
-                
-                //  $initiate = $query->insert('transactions', ['userID' => $userID, 'amount' => $amount, 'fees' => $fees, 'account' => $account, 'trackingID' => $trackingID, 'type' => 'Withdraw', 'status' => 'Pending', 'method' => $method ]);
-        
-                if ($initiate['status'] == "Success") {
-                    
-                    $query->insert('transactions', ['userID' => $userID, 'amount' => $amount, 'fees' => $fees, 'account' => $account, 'trackingID' => $trackingID, 'type' => 'Withdraw', 'status' => 'Processing', 'method' => $method ]);
-                    $body = pending_withdrawal_template($user_details[0]['name'], $amount, $fees);
-                    $email_res = send_email($user_details[0]['email'], 'Withdrawal Submitted Succesfully', $body);
-                    
-                    $body = success_withdrawal_template($user_details[0]['name'], $amount, $trackingID);
-                    $email_res = send_email($user_details[0]['email'], 'Withdrawal Processed Successfully', $body);
-                    $response = [
-                        'status' => 'Success',
-                        'message' => 'Withdrawal made succesfully, fee charge Kes '.$fees.' amount to recieve kes '.$send_amount.'. Expect to recieve your funds within 3hours. If not, contact our support team.'
-                    ];
-                }else{
-                    
-                    $query->insert('transactions', ['userID' => $userID, 'amount' => $amount, 'fees' => $fees, 'account' => $account, 'trackingID' => $trackingID, 'type' => 'Withdraw', 'status' => 'Pending', 'method' => $method ]);
-                    $body = pending_withdrawal_template($user_details[0]['name'], $amount, $fees);
-                    $email_res = send_email($user_details[0]['email'], 'Withdrawal Submitted Succesfully', $body);
-                    $response = [
-                        'status' => 'Success',
-                        'message' => 'Withdrawal made succesfully, fee charge Kes '.$fees.' amount to recieve kes '.$send_amount.'. Expect to recieve your funds within 3hours. If not, contact our support team.'
-                    ];
-                }
-                
-                if ($initiate){
-                    $response = [
-                        'status' => 'Success',
-                        'message' => 'Withdrawal made succesfully, fee charge Kes '.$fees.' amount to recieve kes '.$send_amount.'. Expect to recieve your funds within 3hours. If not, contact our support team.'
-                    ];
-                }else{
-                    $response = [
-                        'status' => 'Failed',
-                        'message' => 'An error occured while trying to initaiate request. Please try again later.',
-                    ];
-                }
-                
-            }else{
-                $response = [
+            if ($amount < money($min)) {
+                $fileGetContent->send_content([
                     'status' => 'Failed',
                     'message' => 'Minimum withdrawal is kes '.$min,
+                ]);
+                exit;
+            }
+
+            $trackingID = create_tracking_ID();
+            $fees = $amount * money($control['withFee']) / 100;
+            $send_amount = $amount - $fees;
+
+            /**
+             * Phase 3.3 / 3.4 -- reserve, attempt, compensate.
+             *
+             * Step 1 (this transaction): lock the wallet, re-check the balance
+             * under the lock, debit it, and record the withdrawal as Pending.
+             * Committing the debit *before* calling the payment provider is
+             * deliberate -- it is what stops two simultaneous withdrawals from
+             * both passing the balance check and spending the same funds.
+             *
+             * Step 2 (after commit): call the provider. Network calls must not
+             * happen inside a transaction; a slow provider would hold the row
+             * lock for its entire timeout.
+             *
+             * Step 3: on failure, refund in a second transaction. Previously
+             * the balance was debited and, if the provider call failed, simply
+             * stayed debited -- the user lost the money and no payout existed.
+             */
+            $pdo->beginTransaction();
+
+            try {
+                $lockedWallet = wallet_for_update($pdo, $userID);
+                $balance = money($lockedWallet['balance'] ?? 0);
+
+                if ($lockedWallet === null || $balance < $amount) {
+                    $pdo->rollBack();
+
+                    $fileGetContent->send_content([
+                        'status' => 'Failed',
+                        'message' => 'Insuficient balance to perform this transaction!',
+                    ]);
+                    exit;
+                }
+
+                $query->update('wallets', ['balance' => money_str($balance - $amount)], ['userID' => $userID]);
+                $query->insert('transactions', ['userID' => $userID, 'amount' => money_str($amount), 'fees' => money_str($fees), 'account' => $account, 'trackingID' => $trackingID, 'type' => 'Withdraw', 'status' => 'Pending', 'method' => $method ]);
+
+                $pdo->commit();
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                error_log('[withdraw] reserve failed: ' . $e->getMessage());
+
+                $fileGetContent->send_content([
+                    'status' => 'Failed',
+                    'message' => 'Could not start the withdrawal. Please try again.',
+                ]);
+                exit;
+            }
+
+            // Funds are now reserved. Attempt the payout.
+            $initiate = mpesa_auto($query, $userID, $send_amount, $account, $curl, $trackingID);
+
+            if (isset($initiate['status']) && $initiate['status'] === 'Success') {
+                // Provider accepted it. The b2c callback settles or refunds.
+                $query->update('transactions', ['status' => 'Processing'], ['trackingID' => $trackingID]);
+
+                $body = pending_withdrawal_template($user_details[0]['name'], money_str($amount), money_str($fees));
+                $email_res = send_email($user_details[0]['email'], 'Withdrawal Submitted Succesfully', $body);
+
+                $response = [
+                    'status' => 'Success',
+                    'message' => 'Withdrawal made succesfully, fee charge Kes '.money_str($fees).' amount to recieve kes '.money_str($send_amount).'. Expect to recieve your funds within 3hours. If not, contact our support team.'
+                ];
+            } else {
+                /**
+                 * Provider refused it. Give the money back.
+                 *
+                 * The old code reported Success here regardless -- and then a
+                 * trailing `if ($initiate)` overwrote the response with Success
+                 * a second time, because $initiate is always a non-empty array.
+                 * The failure branch was unreachable.
+                 */
+                $pdo->beginTransaction();
+
+                try {
+                    $refundWallet = wallet_for_update($pdo, $userID);
+                    $query->update('wallets', ['balance' => money_str(money($refundWallet['balance']) + $amount)], ['userID' => $userID]);
+                    $query->update('transactions', ['status' => 'Failed', 'description' => 'Payout rejected; amount refunded'], ['trackingID' => $trackingID]);
+                    $pdo->commit();
+
+                    error_log("[withdraw] payout refused for {$trackingID}; refunded {$amount}");
+                } catch (\Throwable $e) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+
+                    // The reservation stands but the refund failed. Say so
+                    // loudly -- this is the one state that needs a human.
+                    error_log("[withdraw] REFUND FAILED for {$trackingID} user {$userID} amount {$amount}: " . $e->getMessage());
+                }
+
+                $response = [
+                    'status' => 'Failed',
+                    'message' => $initiate['message'] ?? 'Withdrawal could not be processed. Your balance has not been charged.',
                 ];
             }
-        }else{
-            $response = [
-                'status' => 'Failed',
-                'message' => 'Insuficient balance to perform this transaction!',
-            ];
-        }
-            
+
         }else{
             $response = [
                         'status' => 'Failed',

@@ -7,7 +7,10 @@ $field = $data['field'];
 $value = $data['value'];
 
 // Sanitize field names to prevent SQL injection
-$allowedFields = ["name", "email", "phone", "status", "upline", "date_joined", "role"];
+// Phase 4.11 -- the join date column is `date_created`, not `date_joined`.
+// It is not editable from the panel, so it is simply dropped rather than
+// renamed.
+$allowedFields = ["name", "email", "phone", "status", "upline", "role"];
 if (!in_array($field, $allowedFields, true)) {
     http_response_code(400);
     $fileGetContent->send_content(["success" => false, "message" => "Invalid field"]);

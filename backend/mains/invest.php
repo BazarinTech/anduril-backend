@@ -45,14 +45,35 @@ if (isset($data['userID'])) {
         
         $prodID = $data['prodID'];
         $amount = $data['amount'];
+
+        // Phase 3.6 -- reject anything that is not a positive number before it
+        // reaches a wallet. "50abc" used to pass a `>= $min` comparison as 50.
+        if (!is_valid_amount($amount)) {
+            $fileGetContent->send_content([
+                'status' => 'Failed',
+                'message' => 'Please enter a valid amount.',
+            ]);
+            exit;
+        }
+        $amount = money($amount);
+
         $products = $query->select('products', '*', ['ID' => $prodID]);
-        $product = $products[0];
-        $user_wallet = $query->select('wallets', '*', ['userID' => $userID]);
-        $user_balance = $user_wallet[0]['balance'];
+        $product = $products[0] ?? null;
+
+        // Phase 4.7 territory, but a missing or retired product must not be
+        // purchasable at all, and this is the transaction boundary.
+        if ($product === null || $product['status'] !== 'Active') {
+            $fileGetContent->send_content([
+                'status' => 'Failed',
+                'message' => 'This product is not available.',
+            ]);
+            exit;
+        }
+
         $min = $product['min'];
         $max = $product['max'];
         $is_limit_exceeded = check_limit($prodID, $userID, $query);
-        
+
         if($is_limit_exceeded){
             $response = [
                     'status' => 'Failed',
@@ -62,25 +83,51 @@ if (isset($data['userID'])) {
             exit;
         }
 
-        if ($amount >= $min) {
-            if ($amount <= $max) {
-                if ($user_balance >= $amount) {
-                    $user_balance -= $amount;
-                    $insert_orders = $query->insert('orders', ['type' => 'investment', 'userID' => $userID, 'remaining' => $product['duration'], 'returns' => '0', 'amount' => $amount, 'prodID' => $prodID, 'duration' => $product['duration']]);
-                    $update_wallet = $query->update('wallets', ['balance' => $user_balance], ['userID' => $userID]);
-                    
-                    if($prodID != 1){
-                        $update_user_status = $query->update('users', ['status' => 'Active'], ['ID' => $userID]);
+        if ($amount >= money($min)) {
+            if ($amount <= money($max)) {
+
+                // Phase 3.2 -- lock the wallet, then check and debit. Reading
+                // the balance before the lock is what let two simultaneous
+                // purchases both pass an "enough balance" check.
+                $pdo->beginTransaction();
+
+                try {
+                    $wallet = wallet_for_update($pdo, $userID);
+                    $user_balance = money($wallet['balance'] ?? 0);
+
+                    if ($wallet !== null && $user_balance >= $amount) {
+                        $user_balance -= $amount;
+                        $insert_orders = $query->insert('orders', ['type' => 'investment', 'userID' => $userID, 'remaining' => $product['duration'], 'returns' => '0', 'amount' => money_str($amount), 'prodID' => $prodID, 'duration' => $product['duration']]);
+                        $update_wallet = $query->update('wallets', ['balance' => money_str($user_balance)], ['userID' => $userID]);
+
+                        if($prodID != 1){
+                            $update_user_status = $query->update('users', ['status' => 'Active'], ['ID' => $userID]);
+                        }
+
+                        $pdo->commit();
+
+                        $response = [
+                            'status' => 'Success',
+                            'message' => 'Enrolled Successful',
+                        ];
+                    }else{
+                        $pdo->rollBack();
+
+                        $response = [
+                            'status' => 'Failed',
+                            'message' => 'Not enough balance',
+                        ];
                     }
-                    
-                    $response = [
-                        'status' => 'Success',
-                        'message' => 'Enrolled Successful',
-                    ];
-                }else{
+                } catch (\Throwable $e) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+
+                    error_log('[invest] ' . $e->getMessage());
+
                     $response = [
                         'status' => 'Failed',
-                        'message' => 'Not enough balance',
+                        'message' => 'Could not complete the investment. Please try again.',
                     ];
                 }
             }else{
