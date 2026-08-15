@@ -1,0 +1,416 @@
+/**
+ * DATA TABLE COMPONENT
+ * ====================
+ * Styles for admin/includes/data-table.php.
+ *
+ * Written as plain CSS rather than Tailwind utilities on purpose: the theme
+ * ships a *purged* build (assets/css/main.css), so any class the original
+ * template did not already use simply does not exist. `grid-cols-2` and
+ * `max-w-2xl`, to pick two this component wants, are both absent. Reaching for
+ * them would have produced a modal that silently laid out wrong.
+ *
+ * The palette is lifted from the theme so the two agree:
+ *   accent   rgb(14 165 233)   success rgb(34 197 94)
+ *   danger   rgb(239 68 68)    info    rgb(6 182 212)
+ *   warning  rgb(234 179 8)
+ * Dark mode follows the theme's own switch: [data-mode=dark] on <html>.
+ */
+
+:root {
+    --dt-surface: #ffffff;
+    --dt-surface-muted: #f9fbfd;
+    --dt-border: rgb(226 232 240);
+    --dt-text: rgb(15 23 42);
+    --dt-text-muted: rgb(100 116 139);
+    --dt-accent: rgb(14 165 233);
+    --dt-success: rgb(34 197 94);
+    --dt-danger: rgb(239 68 68);
+    --dt-warning: rgb(234 179 8);
+    --dt-info: rgb(6 182 212);
+    --dt-overlay: rgb(15 23 42 / 0.55);
+}
+
+[data-mode=dark] {
+    --dt-surface: rgb(22 28 48);
+    --dt-surface-muted: rgb(15 23 42);
+    --dt-border: rgb(30 41 59);
+    --dt-text: rgb(241 245 249);
+    --dt-text-muted: rgb(148 163 184);
+    --dt-overlay: rgb(2 6 23 / 0.7);
+}
+
+/* -- Toolbar ----------------------------------------------------------- */
+
+.dt-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.dt-search {
+    position: relative;
+    flex: 1 1 16rem;
+    max-width: 22rem;
+}
+
+.dt-search input {
+    width: 100%;
+    height: 2.5rem;
+    padding: 0 0.75rem 0 2.25rem;
+    border: 1px solid var(--dt-border);
+    border-radius: 0.375rem;
+    background-color: var(--dt-surface-muted);
+    color: var(--dt-text);
+    font-size: 0.875rem;
+}
+
+.dt-search input:focus {
+    outline: 2px solid var(--dt-accent);
+    outline-offset: -1px;
+}
+
+.dt-search svg {
+    position: absolute;
+    left: 0.65rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1rem;
+    height: 1rem;
+    color: var(--dt-text-muted);
+    pointer-events: none;
+}
+
+.dt-count {
+    font-size: 0.8125rem;
+    color: var(--dt-text-muted);
+    white-space: nowrap;
+}
+
+/* -- Table ------------------------------------------------------------- */
+
+.dt-scroll {
+    overflow-x: auto;
+}
+
+.dt-table {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+}
+
+.dt-table th {
+    padding: 0.625rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--dt-text-muted);
+    border-bottom: 1px solid var(--dt-border);
+    white-space: nowrap;
+}
+
+.dt-table td {
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--dt-text);
+    border-bottom: 1px solid var(--dt-border);
+    vertical-align: middle;
+}
+
+.dt-table tbody tr:hover td {
+    background-color: var(--dt-surface-muted);
+}
+
+.dt-table th.dt-right,
+.dt-table td.dt-right {
+    text-align: right;
+}
+
+/* Digits in money and count columns line up when they share a width. */
+.dt-table td.dt-numeric,
+.dt-table th.dt-numeric {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.dt-empty {
+    padding: 2.5rem 0.75rem;
+    text-align: center;
+    color: var(--dt-text-muted);
+    font-size: 0.875rem;
+}
+
+.dt-avatar {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 9999px;
+    object-fit: cover;
+}
+
+/* -- Badges ------------------------------------------------------------ */
+
+.dt-badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.dt-badge--success { background-color: rgb(34 197 94 / 0.15); color: var(--dt-success); }
+.dt-badge--danger  { background-color: rgb(239 68 68 / 0.15); color: var(--dt-danger); }
+.dt-badge--warning { background-color: rgb(234 179 8 / 0.15); color: var(--dt-warning); }
+.dt-badge--info    { background-color: rgb(6 182 212 / 0.15); color: var(--dt-info); }
+.dt-badge--muted   { background-color: rgb(100 116 139 / 0.15); color: var(--dt-text-muted); }
+
+/* -- Row actions ------------------------------------------------------- */
+
+/**
+ * The action cell is the one column whose position must never drift: it is
+ * always last, always right-aligned, and its buttons always sit in the same
+ * order (page-specific actions, then Edit, then Delete). Nothing here wraps --
+ * a row that grows a second line because a button folded is how a dense table
+ * starts to read as noise.
+ */
+.dt-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.375rem;
+    white-space: nowrap;
+}
+
+.dt-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    height: 1.875rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--dt-border);
+    border-radius: 0.375rem;
+    background-color: transparent;
+    color: var(--dt-text-muted);
+    font-size: 0.8125rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.15s linear, border-color 0.15s linear, background-color 0.15s linear;
+}
+
+.dt-action svg {
+    width: 0.9rem;
+    height: 0.9rem;
+}
+
+.dt-action:hover  { border-color: var(--dt-accent); color: var(--dt-accent); }
+.dt-action:focus-visible { outline: 2px solid var(--dt-accent); outline-offset: 1px; }
+
+.dt-action--primary:hover { background-color: rgb(14 165 233 / 0.1); }
+.dt-action--success { color: var(--dt-success); border-color: rgb(34 197 94 / 0.4); }
+.dt-action--success:hover { background-color: rgb(34 197 94 / 0.12); border-color: var(--dt-success); color: var(--dt-success); }
+.dt-action--danger  { color: var(--dt-danger); border-color: rgb(239 68 68 / 0.4); }
+.dt-action--danger:hover { background-color: rgb(239 68 68 / 0.12); border-color: var(--dt-danger); color: var(--dt-danger); }
+
+/* Icon-only buttons stay square so a row of them reads as one control group. */
+.dt-action--icon { padding: 0; width: 1.875rem; justify-content: center; }
+
+/* -- Modal ------------------------------------------------------------- */
+
+.dt-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 1rem;
+    overflow-y: auto;
+    background-color: var(--dt-overlay);
+}
+
+.dt-modal__panel {
+    position: relative;
+    width: 100%;
+    max-width: 40rem;
+    margin: 3rem auto;
+    background-color: var(--dt-surface);
+    border: 1px solid var(--dt-border);
+    border-radius: 0.5rem;
+    box-shadow: 0 20px 40px -12px rgb(0 0 0 / 0.35);
+}
+
+.dt-modal__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--dt-border);
+}
+
+.dt-modal__title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--dt-text);
+}
+
+.dt-modal__subtitle {
+    margin-top: 0.15rem;
+    font-size: 0.8125rem;
+    color: var(--dt-text-muted);
+}
+
+.dt-modal__close {
+    border: 0;
+    background: transparent;
+    color: var(--dt-text-muted);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0.25rem;
+}
+
+.dt-modal__close:hover { color: var(--dt-danger); }
+
+.dt-modal__body {
+    padding: 1.25rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+@media (min-width: 640px) {
+    .dt-modal__body { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dt-field--wide { grid-column: span 2; }
+}
+
+.dt-field label {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--dt-text);
+}
+
+.dt-field input,
+.dt-field select,
+.dt-field textarea {
+    width: 100%;
+    height: 2.75rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--dt-border);
+    border-radius: 0.375rem;
+    background-color: var(--dt-surface-muted);
+    color: var(--dt-text);
+    font-size: 0.875rem;
+}
+
+.dt-field textarea { height: auto; min-height: 5rem; padding: 0.6rem 0.75rem; }
+
+.dt-field input:focus,
+.dt-field select:focus,
+.dt-field textarea:focus {
+    outline: 2px solid var(--dt-accent);
+    outline-offset: -1px;
+}
+
+/**
+ * Read-only fields are shown rather than hidden. Half the point of the modal
+ * is that an admin can see the whole record at once; dropping the fields they
+ * cannot change would leave them wondering whether the field exists.
+ */
+.dt-field--readonly .dt-readonly {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 0.75rem;
+    border: 1px dashed var(--dt-border);
+    border-radius: 0.375rem;
+    color: var(--dt-text-muted);
+    font-size: 0.875rem;
+    word-break: break-word;
+}
+
+.dt-field__hint {
+    margin-top: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--dt-text-muted);
+}
+
+.dt-modal__foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid var(--dt-border);
+}
+
+.dt-btn {
+    height: 2.5rem;
+    padding: 0 1.1rem;
+    border: 1px solid var(--dt-border);
+    border-radius: 0.375rem;
+    background-color: transparent;
+    color: var(--dt-text);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s linear;
+}
+
+.dt-btn:hover { background-color: var(--dt-surface-muted); }
+
+.dt-btn--primary {
+    background-color: var(--dt-accent);
+    border-color: var(--dt-accent);
+    color: #ffffff;
+}
+
+.dt-btn--primary:hover { background-color: rgb(14 165 233 / 0.85); border-color: rgb(14 165 233 / 0.85); }
+.dt-btn--primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.dt-alert {
+    grid-column: 1 / -1;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+}
+
+.dt-alert--danger  { background-color: rgb(239 68 68 / 0.12); color: var(--dt-danger); }
+.dt-alert--success { background-color: rgb(34 197 94 / 0.12); color: var(--dt-success); }
+
+/* -- Pagination -------------------------------------------------------- */
+
+.dt-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    margin-top: 1rem;
+    list-style: none;
+    padding: 0;
+}
+
+.dt-page {
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--dt-border);
+    border-radius: 9999px;
+    background-color: transparent;
+    color: var(--dt-text);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: all 0.2s linear;
+}
+
+.dt-page:hover:not(:disabled) { background-color: var(--dt-accent); border-color: var(--dt-accent); color: #ffffff; }
+.dt-page:disabled { opacity: 0.4; cursor: not-allowed; }
+.dt-page--active { background-color: var(--dt-accent); border-color: var(--dt-accent); color: #ffffff; }
+
+@media (prefers-reduced-motion: reduce) {
+    .dt-action, .dt-btn, .dt-page { transition: none; }
+}

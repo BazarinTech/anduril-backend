@@ -127,155 +127,31 @@ if (isset($_POST['submit'])) {
                         
                         <div class="card">
                         <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Coupons List</h2>
-                            <div class="overflow-auto" x-data="{ items: <?= htmlspecialchars(json_encode($coupons), ENT_QUOTES, 'UTF-8') ?>,
-                                                           searchTerm: '',
-                            currentPage: 1,
-                            itemsPerPage: 50,
-                            
-                            get filteredItems() {
-                                if (!this.searchTerm) return this.items;
-                                
-                                const searchLower = this.searchTerm.toLowerCase();
-                                return this.items.filter(item => 
-                                    item.code.toLowerCase().includes(searchLower) || 
-                                    item.expiry.toLowerCase().includes(searchLower) || 
-                                    item.amount.toLowerCase().includes(searchLower) || 
-                                    item.time_created.toLowerCase().includes(searchLower) || 
-                                    item.status.toLowerCase().includes(searchLower) 
-                                );
-                            },
-                            
-                            get totalPages() {
-                                return Math.ceil(this.filteredItems.length / this.itemsPerPage);
-                            },
-                            
-                            get paginatedItems() {
-                                const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-                                const endIndex = startIndex + this.itemsPerPage;
-                                return this.filteredItems.slice(startIndex, endIndex);
-                            },
-                            
-                            nextPage() {
-                                if (this.currentPage < this.totalPages) {
-                                    this.currentPage++;
-                                }
-                            },
-                            
-                            prevPage() {
-                                if (this.currentPage > 1) {
-                                    this.currentPage--;
-                                }
-                            },
-                            
-                            goToPage(page) {
-                                if (page >= 1 && page <= this.totalPages) {
-                                    this.currentPage = page;
-                                }
-                            },
-                            
-                            goToFirstPage() {
-                                this.currentPage = 1;
-                            },
-                            
-                            goToLastPage() {
-                                this.currentPage = this.totalPages;
-                            }
-                            }">
-                            <input 
-                                type="text" 
-                                x-model="searchTerm" 
-                                placeholder="Search..." 
-                                class="form-input w-full md:w-64"
-                                />
-                                <caption class="caption-top">
-                                    <span class="text-muted">Double Click field To Edit Table.</span>
-                                </caption>
-                                <table class="min-w-[640px] w-full mt-4 table-hover">
-                                    <thead>
-                                        <tr class="ltr:text-left rtl:text-right">
-                                            <th>Coupon ID</th>
-                                            <th>Code</th>
-                                            <th>Amount</th>
-                                            <th>Expiry</th>
-                                            <th>Date Created</th>
-                                            <th>Status</th>
-
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template x-for="item in paginatedItems" :key="item.ID">
-                                            <tr x-show="showElement" x-data="{ showElement: true }">
-                                                <td x-text="item.ID"></td>
-                                                <td>
-                                                    <span x-text="item.code"></span>
-                                                </td>
-                                                <td>
-                                                    <span x-text="item.amount"></span>
-                                                </td>
-                                                <td>
-                                                    <span x-text="item.expiry"></span>
-                                                </td>
-                                                
-                                                <td>
-                                                    <span x-text="item.time_created" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.time_created.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="time_created" x-model="item.time_created" x-on:keydown.enter="item.editing = false" x-show="item.editing">
-                                                </td>
-                                                <td>
-                                                    <?php /* Phase 4.16 -- read-only. This page has no updater()
-                                                             and no request to actions/, so the edit never did
-                                                             anything but raise a console error. */ ?>
-                                                    <span x-text="item.status" x-bind:class="item.status === 'Active' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'" class='px-2 rounded py-1'></span>
-                                                </td>
-                                            </tr>
-                                        </template>
-                                    </tbody>
-                                    
-                                </table>
-                                <ul class="inline-flex items-center gap-1 m-auto mb-4 float-right mt-5">
-                                <li>
-                                    <button type="button" x-on:click="goToFirstPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &laquo;
-                                    </button>
-                                </li>
-                                <li>
-                                    <button type="button" x-on:click="prevPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &lsaquo;
-                                    </button>
-                                </li>
-                            
-                                <!-- Dynamic page numbers -->
-                                <template x-for="page in [...Array(totalPages).keys()].map(i => i + 1).filter(p => {
-                                    if (totalPages <= 5) return true;
-                                    if (currentPage <= 3) return p <= 5;
-                                    if (currentPage >= totalPages - 2) return p >= totalPages - 4;
-                                    return p >= currentPage - 2 && p <= currentPage + 2;
-                                })">
-                                    <li>
-                                        <button 
-                                            type="button"
-                                            x-text="page"
-                                            x-on:click="goToPage(page)"
-                                            :class="page === currentPage ? 'bg-primary text-white border-primary' : 'border dark:border-slate-700 text-black'" 
-                                            class="px-3 py-2 rounded-full hover:bg-primary/90 hover:text-white transition"
-                                        ></button>
-                                    </li>
-                                </template>
-                            
-                                <li>
-                                    <button type="button" x-on:click="nextPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &rsaquo;
-                                    </button>
-                                </li>
-                                <li>
-                                    <button type="button" x-on:click="goToLastPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &raquo;
-                                    </button>
-                                </li>
-                                </ul>
-                            </div>
+                            <?php
+                            /*
+                             * Read-only. There is no actions/update_coupons.php, so this
+                             * table never had a working editor -- the double-click on the
+                             * created-date cell opened an input that silently discarded
+                             * whatever was typed into it.
+                             */
+                            data_table([
+                                'id'      => 'coupons',
+                                'label'   => 'coupon',
+                                'rows'    => $coupons,
+                                'key'     => 'ID',
+                                'search'  => ['code', 'status'],
+                                'empty'   => 'No coupons have been generated yet.',
+                                'columns' => [
+                                    ['label' => 'Coupon ID', 'field' => 'ID'],
+                                    ['label' => 'Code',      'field' => 'code'],
+                                    ['label' => 'Amount',    'field' => 'amount', 'numeric' => true],
+                                    ['label' => 'Expiry',    'field' => 'expiry', 'numeric' => true],
+                                    ['label' => 'Date Created', 'field' => 'time_created'],
+                                    ['label' => 'Status',    'field' => 'status',
+                                     'badge' => ['Active' => 'success', '*' => 'danger']],
+                                ],
+                            ]);
+                            ?>
                         </div>
                     </div>
                 </div>

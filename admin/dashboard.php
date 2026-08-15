@@ -1,11 +1,236 @@
-<?php 
+<?php
 include 'includes/main.php';
-//payment wallet
-$payment_wallet = 0;
+require_once __DIR__ . '/../lib/palpluss.php';
 
-//service wallet
-$response = $curl->request('https://api.palpluss.com/v1/wallets/service/balance', 'GET');
-$service_wallet = $response['data']['ledgerBalance'];
+/**
+ * Provider float balances.
+ *
+ * The payment wallet is the B2C float that withdrawals are paid out of --
+ * when it runs dry, payouts fail with "Insufficient B2C wallet balance", so
+ * this number is the early warning for that.
+ *
+ * Both are live reads with a short timeout and a 30-second cache, and both
+ * report failure distinctly rather than rendering as zero. An empty float and
+ * an unreachable provider mean opposite things to whoever is looking at this.
+ */
+$payment_wallet = palpluss_wallet_balance('b2c');
+$service_wallet = palpluss_wallet_balance('service');
+
+/**
+ * CHART DATA
+ * ==========
+ * Both charts shipped with the theme's demo numbers -- an eleven-month series
+ * dated 2003 and a flat 44/55 donut split. They are computed from the database
+ * here instead.
+ *
+ * All of it is one pass over twelve months, three aggregate queries total, so
+ * this costs a fixed amount no matter how much history accumulates.
+ */
+
+$months = [];
+$cursor = new DateTime('first day of this month 00:00:00');
+$cursor->modify('-11 months');
+
+for ($i = 0; $i < 12; $i++) {
+    $months[$cursor->format('Y-m')] = [
+        'label'    => $cursor->format('M Y'),
+        'iso'      => $cursor->format('Y-m-01'),
+        'signups'  => 0,
+        'active'   => 0,
+        'deposits' => 0.0,
+        'withdrawals' => 0.0,
+    ];
+    $cursor->modify('+1 month');
+}
+
+$windowStart = array_key_first($months) . '-01 00:00:00';
+
+// Sign-ups per month.
+$stmt = $pdo->prepare(
+    "SELECT DATE_FORMAT(date_created, '%Y-%m') AS ym, COUNT(*) AS n
+       FROM users
+      WHERE date_created >= ?
+   GROUP BY ym"
+);
+$stmt->execute([$windowStart]);
+
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    if (isset($months[$row['ym']])) {
+        $months[$row['ym']]['signups'] = (int) $row['n'];
+    }
+}
+
+/**
+ * Active users per month.
+ *
+ * Deliberately *not* `users.status`: that column holds each account's status
+ * right now, with no history, so plotting it over time would draw today's
+ * figure across every month. What is actually recorded is activity -- a
+ * settled transaction or an order placed -- so that is what "active" means
+ * here: distinct people who did something that month.
+ */
+$stmt = $pdo->prepare(
+    "SELECT ym, COUNT(DISTINCT userID) AS n FROM (
+         SELECT DATE_FORMAT(time, '%Y-%m') AS ym, userID
+           FROM transactions
+          WHERE status = 'Success' AND time >= ?
+          UNION
+         SELECT DATE_FORMAT(time, '%Y-%m') AS ym, userID
+           FROM orders
+          WHERE time >= ?
+     ) activity
+     GROUP BY ym"
+);
+$stmt->execute([$windowStart, $windowStart]);
+
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    if (isset($months[$row['ym']])) {
+        $months[$row['ym']]['active'] = (int) $row['n'];
+    }
+}
+
+// Settled deposit and withdrawal volume per month, for the month-on-month
+// figures under the headline totals.
+$stmt = $pdo->prepare(
+    "SELECT DATE_FORMAT(time, '%Y-%m') AS ym, type, SUM(amount) AS total
+       FROM transactions
+      WHERE status = 'Success' AND type IN ('Deposit', 'Withdraw') AND time >= ?
+   GROUP BY ym, type"
+);
+$stmt->execute([$windowStart]);
+
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    if (!isset($months[$row['ym']])) {
+        continue;
+    }
+
+    $key = $row['type'] === 'Deposit' ? 'deposits' : 'withdrawals';
+    $months[$row['ym']][$key] = (float) $row['total'];
+}
+
+$chart_labels   = array_column($months, 'iso');
+$chart_signups  = array_column($months, 'signups');
+$chart_active   = array_column($months, 'active');
+
+// The donut is the settled split between money in and money out. Both totals
+// already exist -- main.php computes them for the cards above.
+$chart_deposits_total    = (float) $total_deposits;
+$chart_withdrawals_total = (float) $total_withdrawals;
+
+/**
+ * "than last month" under each headline figure. These were hardcoded strings
+ * (+1.5k, 548, +1.7k) sitting under numbers that were real, which is the worst
+ * of both -- it reads as measured.
+ */
+$this_month = array_key_last($months);
+$last_month = array_slice(array_keys($months), -2, 1)[0];
+
+/**
+ * Returns the coloured figure and the grey sentence around it separately, so
+ * the phrasing still reads when there is nothing to compare against. A new
+ * install has no previous month, and "+0 (0%) than last month" is a worse
+ * answer than saying so.
+ *
+ * @param string $noun   What is being counted, e.g. 'sign-ups'. Empty for money.
+ * @param bool   $money  Prefix the figure with the currency.
+ * @param bool   $invert Swap the colours. Money leaving the business is not
+ *                       good news because it went up, so withdrawals read red
+ *                       when rising and green when falling.
+ */
+function month_delta($current, $previous, $noun = '', $money = false, $invert = false)
+{
+    $format = function ($value) use ($money) {
+        return ($money ? 'Kes ' : '') . number_format($value, 0);
+    };
+
+    $subject = $noun !== '' ? ' ' . $noun : '';
+
+    if ($previous <= 0) {
+        if ($current > 0) {
+            return [
+                'lead' => $format($current),
+                'tail' => $subject . ' this month, the first on record',
+                'tone' => $invert ? 'muted' : 'success',
+            ];
+        }
+
+        return [
+            'lead' => 'None',
+            'tail' => $subject . ' this month or last',
+            'tone' => 'muted',
+        ];
+    }
+
+    $change  = $current - $previous;
+    $percent = number_format(abs($change / $previous) * 100, 1);
+
+    $rising = $change >= 0;
+
+    return [
+        'lead' => ($rising ? '+' : '-') . $format(abs($change)),
+        'tail' => $subject . ' than last month (' . $percent . '%)',
+        'tone' => ($invert ? !$rising : $rising) ? 'success' : 'danger',
+    ];
+}
+
+// Same shape, different sentence: the two rows under the donut compare
+// yesterday with the day before, not this month with last.
+function day_delta($current, $previous, $invert = false)
+{
+    $delta = month_delta($current, $previous, '', true, $invert);
+
+    $delta['tail'] = str_replace(
+        [' than last month', ' this month, the first on record', ' this month or last'],
+        [' on the day before', ' yesterday, the first on record', ' settled yesterday or the day before'],
+        $delta['tail']
+    );
+
+    return $delta;
+}
+
+$deposits_delta    = month_delta($months[$this_month]['deposits'], $months[$last_month]['deposits'], '', true);
+$withdrawals_delta = month_delta($months[$this_month]['withdrawals'], $months[$last_month]['withdrawals'], '', true, true);
+$signups_delta     = month_delta($months[$this_month]['signups'], $months[$last_month]['signups'], 'sign-ups');
+
+/**
+ * Total Balance is what everyone holds right now. No history of it is stored,
+ * so there is nothing to compare it against month on month. Net settled
+ * movement this month is derivable and explains which way it is going.
+ */
+$net_flow = $months[$this_month]['deposits'] - $months[$this_month]['withdrawals'];
+$balance_note = [
+    'lead' => ($net_flow >= 0 ? '+' : '-') . 'Kes ' . number_format(abs($net_flow), 0),
+    'tail' => ' net movement this month',
+    'tone' => $net_flow >= 0 ? 'success' : 'danger',
+];
+
+// Yesterday against the day before, for the two rows under the donut.
+$stmt = $pdo->prepare(
+    "SELECT type, DATE(time) AS d, SUM(amount) AS total
+       FROM transactions
+      WHERE status = 'Success' AND type IN ('Deposit', 'Withdraw')
+        AND DATE(time) IN (CURDATE() - INTERVAL 1 DAY, CURDATE() - INTERVAL 2 DAY)
+   GROUP BY type, d"
+);
+$stmt->execute();
+
+$daily = ['Deposit' => [], 'Withdraw' => []];
+$yesterday   = (new DateTime('yesterday'))->format('Y-m-d');
+$day_before  = (new DateTime('-2 days'))->format('Y-m-d');
+
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    $daily[$row['type']][$row['d']] = (float) $row['total'];
+}
+
+$deposits_daily = day_delta(
+    $daily['Deposit'][$yesterday] ?? 0.0,
+    $daily['Deposit'][$day_before] ?? 0.0
+);
+$withdrawals_daily = day_delta(
+    $daily['Withdraw'][$yesterday] ?? 0.0,
+    $daily['Withdraw'][$day_before] ?? 0.0,
+    true
+);
 ?>
 <!DOCTYPE html>
 <html lang="en"  :dir="$store.app.direction" x-data="{ direction: $store.app.direction || 'ltr' }" x-bind:dir="direction" class="group/item" :data-mode="$store.app.mode" :data-sidebar="$store.app.sidebarMode">
@@ -75,33 +300,54 @@ $service_wallet = $response['data']['ledgerBalance'];
                     <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 xl:grid-cols-5">
                         <div class="card">
                             <p class="flex items-center gap-2 text-base dark:text-gray-300"><i data-feather="dollar-sign" class="size-4"></i> Payment Wallet</p>
-                            <h4 class="flex items-center gap-4 mt-3 text-2xl font-semibold text-slate-800 dark:text-slate-100">Kes <?=number_format($payment_wallet, 2)?>
+                            <h4 class="flex items-center gap-4 mt-3 text-2xl font-semibold text-slate-800 dark:text-slate-100">
+                                <?php if ($payment_wallet['ok']): ?>
+                                    <?=htmlspecialchars($payment_wallet['currency'])?> <?=number_format($payment_wallet['balance'], 2)?>
+                                <?php else: ?>
+                                    <span class="text-muted">&mdash;</span>
+                                <?php endif; ?>
                             </h4>
-                            <p class="mt-2 text-muted"><span class="font-semibold text-success">+$141k</span> than last month</p>
+                            <?php /* Never render an unavailable balance as 0.00 -- an empty payout
+                                     float and an unreachable provider look identical that way, and
+                                     they call for opposite responses. */ ?>
+                            <?php if ($payment_wallet['ok']): ?>
+                                <p class="mt-2 text-muted">Payout float<?= $payment_wallet['cached'] ? ' &middot; cached' : '' ?></p>
+                            <?php else: ?>
+                                <p class="mt-2 text-muted"><span class="font-semibold text-danger">Unavailable</span> &mdash; <?=htmlspecialchars($payment_wallet['error'])?></p>
+                            <?php endif; ?>
                         </div>
                         <div class="card">
                             <p class="flex items-center gap-2 text-base dark:text-gray-300"><i data-feather="activity" class="size-4"></i> Service Wallet</p>
-                            <h4 class="flex items-center gap-4 mt-3 text-2xl font-semibold text-slate-800 dark:text-slate-100">Kes <?=number_format($service_wallet, 2)?>
+                            <h4 class="flex items-center gap-4 mt-3 text-2xl font-semibold text-slate-800 dark:text-slate-100">
+                                <?php if ($service_wallet['ok']): ?>
+                                    <?=htmlspecialchars($service_wallet['currency'])?> <?=number_format($service_wallet['balance'], 2)?>
+                                <?php else: ?>
+                                    <span class="text-muted">&mdash;</span>
+                                <?php endif; ?>
                             </h4>
-                            <p class="mt-2 text-muted"><span class="font-semibold text-success">2%</span> than last month</p>
+                            <?php if ($service_wallet['ok']): ?>
+                                <p class="mt-2 text-muted">Service balance<?= $service_wallet['cached'] ? ' &middot; cached' : '' ?></p>
+                            <?php else: ?>
+                                <p class="mt-2 text-muted"><span class="font-semibold text-danger">Unavailable</span> &mdash; <?=htmlspecialchars($service_wallet['error'])?></p>
+                            <?php endif; ?>
                         </div>
                         <div class="card">
                             <p class="flex items-center gap-2 text-base dark:text-gray-300"><i data-feather="truck" class="size-4"></i> Total Balance</p>
                             <h4 class="flex items-center gap-4 mt-3 text-2xl font-semibold text-slate-800 dark:text-slate-100">Kes <?=number_format($total_balance, 2)?>
                             </h4>
-                            <p class="mt-2 text-muted"><span class="font-semibold text-success">+1.5k</span> than last month</p>
+                            <p class="mt-2 text-muted"><span class="font-semibold text-<?=$balance_note['tone']?>"><?=$balance_note['lead']?></span><?=$balance_note['tail']?></p>
                         </div>
                         <div class="card">
                             <p class="flex items-center gap-2 text-base dark:text-gray-300"><i data-feather="stop-circle" class="size-4"></i> Total Deposits</p>
                             <h4 class="flex items-center gap-4 mt-3 text-2xl font-semibold text-slate-800 dark:text-slate-100">Kes <?=number_format($total_deposits, 2)?>
                             </h4>
-                            <p class="mt-2 text-muted"><span class="font-semibold text-danger">548</span> than last month</p>
+                            <p class="mt-2 text-muted"><span class="font-semibold text-<?=$deposits_delta['tone']?>"><?=$deposits_delta['lead']?></span><?=$deposits_delta['tail']?></p>
                         </div>
                         <div class="card">
                             <p class="flex items-center gap-2 text-base dark:text-gray-300"><i data-feather="shopping-bag" class="size-4"></i> Total Withdrawals</p>
                             <h4 class="flex items-center gap-4 mt-3 text-2xl font-semibold text-slate-800 dark:text-slate-100">Kes <?=number_format($total_withdrawals, 2)?>
                             </h4>
-                            <p class="mt-2 text-muted"><span class="font-semibold text-success">+1.7k</span> than last month</p>
+                            <p class="mt-2 text-muted"><span class="font-semibold text-<?=$withdrawals_delta['tone']?>"><?=$withdrawals_delta['lead']?></span><?=$withdrawals_delta['tail']?></p>
                         </div>
                     </div>
                     <div class="grid grid-cols-12 gap-4">
@@ -151,17 +397,17 @@ $service_wallet = $response['data']['ledgerBalance'];
                             <div id="salesChart" dir="ltr"></div>
                             <div class="mt-4 space-y-3">
                                 <div class="flex items-center gap-3 p-3 border border-dashed shadow-none card">
-                                    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAMpSURBVHgBjZZvTiJBEMWHURMTTZb9pvFPxhOs3gBOoJ4APAF4AvEE4AnEE4gngBsIJ3A2auI3ZxNNjFHZ94MqMg7DxE7abqq769V7Vd1jKShoGxsb0crKSuPr6+uoVCpFMiXqw/F4fPX4+NgNftBKixZ2d3drctzRtKw+EEAsx2X1fQPrfXx8nK6urgaJtR8DbG9vVzT05Sz+/PysPj09xZn1aw1HaZv2DjVcZJnlAuzs7Nwp+iDrfGtri+jbmlaCqVxXNsLs0Jm9vLyc5DKSg7qi66uPNW+6vawm0DZ29Wf1FrZgnnnLzra/LbDZHad6hTXlomFOOXhJ4tOMckA66fMhf9bX1/tG+0JUT7Gpeu4YqSByoWlV+p4gGSAEJElukRPmDrC8vNyy6SRHoS0SyfnDw0PTNM22C60NjOmZnAA+EvAJuRLQJYAAx3GcWEDRBFCLNQyKrhUUNKSSM/aULRjf30V7jQ2AFXBXPtnzyyWqyDAqck7lqKJgd0zU6jWk2dzcnMgAmO7EARdQe+sWxMgBcPBcBKCDXTHcQybqnLlsN0tLS9eeeHIje132Ax1J5PMQSUPkEfW5anh/f/+d+jnKAR3a5SqZNJc4FMjQmEYqnmYoJGjte1mpenpG9ZZDRneRdIlHjTRra2su2UDDkPyGQu9Y1qG7TxVwSJruBdObDrs/WedhGM5syk+Sw5Aqi0IcCumGSD3qtKayHWvtyOsdpsx1uB4UNJ2bVVFgESZeBWJ1S72zcH9/37OksoZk18rZ7EIWAMB84ACJ62nSkKiWR807pN8Anush29O+TpFzgkMegnKAvxioAqRRkqrpW8o3AGDqnVcSmWRv5MliwbSoMEraAXr8URWc+eZUvR8A6G+QVRZvFxGSO96fyI5RMFzIwevrazVLy1/Bs2xk/gb5q8re9HOtZ6Rp9n764Zuw8kkURWXJQHR8f2NYKZp/0LaKmXw6g+k7NPBz9t3uIyeMs8HNfdGIwPTN3u6eHB+nDe6c/OlnNQ28EMBb2drb2xsat50ZyaPizGklmFbgqcq5m+dnIcACZjVjxjc45oJK1k72n4J0+w+aFx6vuG6LdAAAAABJRU5ErkJggg==" alt="" class="size-7">
+                                    <span class="grid rounded-full shrink-0 size-9 place-items-center bg-success/15 text-success"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-5" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10h3l-4 4-4-4h3V7h2v5z"></path></svg></span>
                                     <div>
                                         <h5 class="text-slate-800 dark:text-slate-100">Deposits</h5>
-                                        <p class="text-muted dark:text-darkmuted">+2.2% yesterday</p>
+                                        <p class="text-muted dark:text-darkmuted"><span class="font-medium text-<?=$deposits_daily['tone']?>"><?=$deposits_daily['lead']?></span><?=$deposits_daily['tail']?></p>
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-3 p-3 border border-dashed shadow-none card">
-                                    <img src="data:image/png;base64,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" alt="" class="size-7">
+                                    <span class="grid rounded-full shrink-0 size-9 place-items-center bg-danger/15 text-danger"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-5" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10v5h-2v-5H8l4-4 4 4h-3z"></path></svg></span>
                                     <div>
                                         <h5 class="text-slate-800 dark:text-slate-100">Withdrawals</h5>
-                                        <p class="text-muted dark:text-darkmuted">-1.5% yesterday</p>
+                                        <p class="text-muted dark:text-darkmuted"><span class="font-medium text-<?=$withdrawals_daily['tone']?>"><?=$withdrawals_daily['lead']?></span><?=$withdrawals_daily['tail']?></p>
                                     </div>
                                 </div>
                             </div>
@@ -184,6 +430,25 @@ $service_wallet = $response['data']['ledgerBalance'];
 <script  src="assets/libs/feather-icons/feather.min.js"></script>
 
 <script src="assets/libs/apexcharts/apexcharts.min.js"></script>
+<?php
+/**
+ * Chart data, handed to the init script rather than baked into it.
+ *
+ * crm-dashboard.init.js is a static asset shared with the theme; keeping the
+ * numbers here means the chart file stays a chart file and PHP stays the only
+ * thing that talks to the database.
+ */
+?>
+<script>
+window.dashboardData = <?= json_encode([
+    'labels'      => $chart_labels,
+    'signups'     => $chart_signups,
+    'active'      => $chart_active,
+    'deposits'    => round($chart_deposits_total, 2),
+    'withdrawals' => round($chart_withdrawals_total, 2),
+    'currency'    => 'Kes',
+], JSON_UNESCAPED_SLASHES) ?>;
+</script>
 <script src="assets/js/pages/crm-dashboard.init.js"></script>
 
 </body>

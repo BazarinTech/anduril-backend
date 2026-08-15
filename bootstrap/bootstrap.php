@@ -160,6 +160,7 @@ $pdo = $db->getConnection();
 
 require_once __DIR__ . '/ledger.php';
 require_once __DIR__ . '/referrals.php';
+require_once __DIR__ . '/claims.php';
 
 /**
  * ===========================

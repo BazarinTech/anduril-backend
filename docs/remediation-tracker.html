@@ -838,6 +838,169 @@
     </div>
   </section>
 
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">&#9679;</span>
+      <h2>Admin tables rebuilt as one component</h2>
+      <span class="chip done">Complete</span>
+    </div>
+    <p class="phase-why">
+      Twelve pages each carried their own copy of the same 180-line Alpine table. Editing was
+      double-click-a-cell, which had three problems beyond being undiscoverable: one
+      <span class="mono">editing</span> flag per row turned every cell into an input at once
+      while Enter saved only the field you were in; and most fields were never wired to a save
+      call at all &mdash; on the users table, name, username, email, upline and the join date
+      all accepted typing, closed cleanly, and discarded the edit without an error.
+    </p>
+    <div class="items">
+      <div class="item is-done">
+        <span class="id mono">t.1</span>
+        <span class="what">One renderer for all twelve tables, driven by a column config &mdash; 2,539 lines of duplicated markup removed</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/includes/data-table.php &middot; admin/assets/css/data-table.css</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">t.2</span>
+        <span class="what">Editing moved to an Edit button in the Action column opening a modal on the whole record; a field is an input only if its update endpoint actually accepts that column, everything else is read-only with a note saying why</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">all twelve listing pages</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">t.3</span>
+        <span class="what">Approve and Reject moved onto the row they act on; the standalone &ldquo;type a tracking ID into a box&rdquo; form is gone, and with it the chance of approving the wrong record by transposing a character</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">approve-deposits &middot; approve-withdrawals &middot; incentive-application</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">t.4</span>
+        <span class="what">Money editors read raw columns instead of the formatted display string &mdash; the inline editor posted <span class="mono">"Kes 1,200.00"</span> into DECIMAL columns, which strict MySQL rejects outright</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">wallets &middot; transactions &middot; includes/main.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">t.5</span>
+        <span class="what">A save is mirrored into the table only after the server confirms it; a rejected save keeps the modal open with the edit intact and says what went wrong</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">data-table.php &rarr; save()</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">t.6</span>
+        <span class="what">Delete removes the row from the data, not just from view &mdash; the old version hid it before the request returned, so a failed delete looked like a success and the counters kept counting a record that still existed</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">data-table.php &rarr; remove()</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">t.7</span>
+        <span class="what">Approving no longer re-renders the queue still showing the record just approved &mdash; the pending lists are rebuilt after the handler runs</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">includes/main.php &rarr; pending_deposit_records() and siblings</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">t.8</span>
+        <span class="what">Two more silent breakages found on the way: the incentive applications table read <span class="mono">item.incentive</span> against a key spelled <span class="mono">Incentive</span>, blanking that column on every row; and the users table let you retype an upline's email into an integer ID column</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">includes/main.php &middot; users.php</span>
+      </div>
+    </div>
+    <p class="phase-why" style="margin-top:16px;">
+      Driven in a real browser rather than read: 41 assertions across four suites covering
+      render, modal open and seed, cancel, escape, a save that reaches MySQL, search,
+      pagination, permission gating, and every failure path &mdash; 403, a non-JSON 500, a
+      dropped connection, and a rejected delete. A view-only admin receives no Action column
+      in the markup at all.
+    </p>
+  </section>
+
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">&#9679;</span>
+      <h2>Claiming runs on the clock, not on a reset</h2>
+      <span class="chip done">Complete</span>
+    </div>
+    <p class="phase-why">
+      Whether an investment could be claimed was <em>stored state</em>:
+      <span class="mono">orders.rolls</span>, a flag something external had to set back to 1
+      every night. First an admin pressing a button, later a cron job &mdash; both share the
+      same failure mode. Miss a night and nobody can claim; run it twice and everybody claims
+      twice. The product quietly stopped working whenever the thing that maintained the flag
+      did not run.
+    </p>
+    <p class="phase-why">
+      Claimability is now <strong>derived</strong>: an order can be claimed while the clock is
+      inside the configured daily window and that order has claims left for the current period.
+      Nothing has to fire on a schedule for tomorrow to work, and there is no state to go stale.
+    </p>
+    <div class="items">
+      <div class="item is-done">
+        <span class="id mono">c.1</span>
+        <span class="what">Claim window computed from the clock &mdash; opening time, optional closing time, and claims per investment per day, all set by the admin</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bootstrap/claims.php &middot; backend/mains/returns.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">c.2</span>
+        <span class="what">&ldquo;Transaction Control&rdquo; renamed <strong>Platform Control</strong> and given the window settings; the old URL 301s so nothing breaks</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/platform-control.php &middot; admin/transaction-control.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">c.3</span>
+        <span class="what">A claim period is keyed to the date the window <em>opened</em>, so a window running through midnight (22:00&ndash;02:00) counts 23:30 and 00:30 as the same day's claim rather than two</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">claim_window()</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">c.4</span>
+        <span class="what">The claim is still one conditional UPDATE, so the race that used to drain the endpoint stays closed &mdash; 12 simultaneous requests credit exactly once, and exactly three when three per day are allowed</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">take_order_claim()</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">c.5</span>
+        <span class="what"><span class="mono">wallets.today_income</span> rolls over on the first credit of a new period instead of being zeroed nightly</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">wallet_day_income()</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">c.6</span>
+        <span class="what">The app keeps its contract &mdash; <span class="mono">roll</span> is still 0/1 &mdash; but the dashboard now also returns why a claim is unavailable, how many are left, and when the next one opens</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">backend/mains/mains.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">c.7</span>
+        <span class="what">Two dead controls removed on the way: &ldquo;Update User Rolls&rdquo; posted a field the page never handled, and &ldquo;Maximum Withdrawal&rdquo; was hardcoded to 1000000 with no column behind it. <span class="mono">level3</span> was collected from the form and left out of the UPDATE, so the third-level commission rate could not be changed at all</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/platform-control.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">c.8</span>
+        <span class="what">This page had no permission check whatsoever &mdash; any signed-in admin could rewrite commission rates and fees. Now gated on <span class="mono">[edit]</span>, with percentages clamped to 0&ndash;100</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/platform-control.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">c.9</span>
+        <span class="what">The nightly cron is no longer required. <span class="mono">bin/daily-reset.php</span> is now a no-op that reports the live window and exits 0, so an installed crontab entry does not start failing</span>
+        <span class="chip yours">Remove the cron</span>
+        <span class="where mono">bin/daily-reset.php &middot; admin/admin-roll.php</span>
+      </div>
+    </div>
+    <p class="phase-why" style="margin-top:16px;">
+      64 assertions: 44 unit tests moving the clock through every boundary (opening second,
+      closing second, midnight crossing, window disabled, malformed times), and 20 end-to-end
+      against the running server and a real MySQL &mdash; including that a shut window refuses
+      without consuming the day's claim, that an expired order and another user's order are
+      both refused, and the two concurrency cases.
+    </p>
+    <p class="phase-why">
+      <strong>Migration 004 must run before this code.</strong> It carries the old flag across:
+      an order sitting at <span class="mono">rolls = 1</span> stays claimable, one at 0 is
+      recorded as having already claimed today, so nobody gains or loses a claim on the day
+      it ships.
+    </p>
+  </section>
+
   <footer class="foot">
     <div class="eyebrow">Where this landed</div>
     <p style="margin:10px 0 0; max-width:70ch; color:var(--muted);">

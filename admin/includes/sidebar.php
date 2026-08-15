@@ -140,10 +140,10 @@
                         </li>
                         
                         <li class="menu nav-item <?= $isFinance ? '' : 'hidden' ?>">
-                            <a href="transaction-control" class="nav-link group" @click="toggle('single' , false)">
+                            <a href="platform-control" class="nav-link group" @click="toggle('single' , false)">
                                 <div class="flex items-center">
                                     <i data-feather="sliders" class="size-4"></i>
-                                    <span class="ltr:pl-1.5 rtl:pr-1.5">Transaction Control</span>
+                                    <span class="ltr:pl-1.5 rtl:pr-1.5">Platform Control</span>
                                 </div>
                             </a>
                         </li>

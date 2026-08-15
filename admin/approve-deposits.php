@@ -91,6 +91,10 @@ if (isset($_POST['submit'])) {
     }
     
 
+
+    // main.php built the queue before this handler ran, so the list below
+    // would still show the record just actioned. Rebuild it.
+    $deposits_records = pending_deposit_records($query);
 }
 ?>
 <!DOCTYPE html>
@@ -159,188 +163,54 @@ if (isset($_POST['submit'])) {
                 <!-- Start All Card -->
                 <div class="flex flex-col gap-4 min-h-[calc(100vh-212px)]">
                     <div class="grid grid-cols-1 gap-4">
-                    <div class="card">
-                            <form action="approve-deposits" method="post">
-                            <div class="w-full grid place-items-center">
-                                <?php 
-                                if ($msg) {
-                                    echo '<p class="bg-success/20 text-success text-center w-1/2 my-2 rounded-lg py-2 px-2">'.$msg.'</p>';
-                                }
-                                ?>
-
-                                <?php 
-                                if ($error) {
-                                    echo '<p class="bg-danger/20 text-danger text-center w-1/2 my-2 rounded-lg py-2 px-2">'.$error.'</p>';
-                                }
-                                ?>
-                            </div>
-                            <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Enter Tracking ID and Action</h2>
-                                <div class="space-y-1">
-                                    <label>Enter Tracking ID</label>
-                                    <input type="text" name='id' class="form-input h-14" placeholder="TrackingID here" required>
-                                </div>
-                                <div class="space-y-1 my-4">
-                                    <label>Action (Approve or reject</label>
-                                    <select class="form-select h-14" name='action'>
-                                        <option value='Success'>Approve</option>
-                                        <option value='Declined'>Reject</option>
-                                    </select>
-                                </div>
-                                <button type="submit" name='submit' class="btn bg-purple border border-purple rounded-md text-white transition-all duration-300 hover:bg-purple/[0.85] hover:border-purple/[0.85]">Submit</button>
-                            </form>
+                    <?php if ($msg || $error): ?>
+                        <div class="card">
+                            <p class="<?= $msg ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger' ?> text-center rounded-lg py-2 px-2">
+                                <?= htmlspecialchars($msg ?: $error, ENT_QUOTES, 'UTF-8') ?>
+                            </p>
                         </div>
+                    <?php endif; ?>
                         
                         <div class="card">
                         <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Pending Deposits</h2>
-                            <div class="overflow-auto" x-data="{ items: <?= htmlspecialchars(json_encode($deposits_records), ENT_QUOTES, 'UTF-8') ?>,
-                                                           searchTerm: '',
-                            currentPage: 1,
-                            itemsPerPage: 50,
-                            
-                            get filteredItems() {
-                                if (!this.searchTerm) return this.items;
-                                
-                                const searchLower = this.searchTerm.toLowerCase();
-                                return this.items.filter(item => 
-                                    item.email.toLowerCase().includes(searchLower) || 
-                                    item.amount.toLowerCase().includes(searchLower) || 
-                                    item.type.toLowerCase().includes(searchLower) || 
-                                    item.description.toLowerCase().includes(searchLower) || 
-                                    item.status.toLowerCase().includes(searchLower) 
-                                );
-                            },
-                            
-                            get totalPages() {
-                                return Math.ceil(this.filteredItems.length / this.itemsPerPage);
-                            },
-                            
-                            get paginatedItems() {
-                                const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-                                const endIndex = startIndex + this.itemsPerPage;
-                                return this.filteredItems.slice(startIndex, endIndex);
-                            },
-                            
-                            nextPage() {
-                                if (this.currentPage < this.totalPages) {
-                                    this.currentPage++;
-                                }
-                            },
-                            
-                            prevPage() {
-                                if (this.currentPage > 1) {
-                                    this.currentPage--;
-                                }
-                            },
-                            
-                            goToPage(page) {
-                                if (page >= 1 && page <= this.totalPages) {
-                                    this.currentPage = page;
-                                }
-                            },
-                            
-                            goToFirstPage() {
-                                this.currentPage = 1;
-                            },
-                            
-                            goToLastPage() {
-                                this.currentPage = this.totalPages;
-                            }
-                            }">
-                            <input 
-                                type="text" 
-                                x-model="searchTerm" 
-                                placeholder="Search..." 
-                                class="form-input w-full md:w-64"
-                                />
-                                <caption class="caption-top">
-                                    <span class="text-muted">Double Click field To Edit Table.</span>
-                                </caption>
-                                <table class="min-w-[640px] w-full mt-4 table-hover">
-                                    <thead>
-                                        <tr class="ltr:text-left rtl:text-right">
-                                            <th>#</th>
-                                            <th>TrackingID</th>
-                                            <th>Email</th>
-                                            <th>Phone</th>
-                                            <th>Amount</th>
-                                            <th>Transaction Message</th>
-                                            <th>Time</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template x-for="item in paginatedItems" :key="item.id">
-                                            <tr x-show="showElement" x-data="{ showElement: true }">
-                                                <td x-text="item.id"></td>
-                                                <td>
-                                                    <span x-text="item.trackingID"></span>
-                                                </td>
-                                                <td>
-                                                    <span x-text="item.email"></span>
-                                                </td>
-                                                <td>
-                                                    <span x-text="item.account"></span>
-                                                </td>
-                                                <td>
-                                                    <span x-text="item.amount"></span>
-                                                </td>
-                                                <td>
-                                                    <span x-text="item.description"></span>
-                                                </td>
-                                                
-                                                <td>
-                                                    <span x-text="item.time" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.time.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="time" x-model="item.time" x-on:keydown.enter="item.editing = false" x-show="item.editing">
-                                                </td>
-                                            </tr>
-                                        </template>
-                                    </tbody>
-                                    
-                                </table>
-                                <ul class="inline-flex items-center gap-1 m-auto mb-4 float-right mt-5">
-                                <li>
-                                    <button type="button" x-on:click="goToFirstPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &laquo;
-                                    </button>
-                                </li>
-                                <li>
-                                    <button type="button" x-on:click="prevPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &lsaquo;
-                                    </button>
-                                </li>
-                            
-                                <!-- Dynamic page numbers -->
-                                <template x-for="page in [...Array(totalPages).keys()].map(i => i + 1).filter(p => {
-                                    if (totalPages <= 5) return true;
-                                    if (currentPage <= 3) return p <= 5;
-                                    if (currentPage >= totalPages - 2) return p >= totalPages - 4;
-                                    return p >= currentPage - 2 && p <= currentPage + 2;
-                                })">
-                                    <li>
-                                        <button 
-                                            type="button"
-                                            x-text="page"
-                                            x-on:click="goToPage(page)"
-                                            :class="page === currentPage ? 'bg-primary text-white border-primary' : 'border dark:border-slate-700 text-black'" 
-                                            class="px-3 py-2 rounded-full hover:bg-primary/90 hover:text-white transition"
-                                        ></button>
-                                    </li>
-                                </template>
-                            
-                                <li>
-                                    <button type="button" x-on:click="nextPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &rsaquo;
-                                    </button>
-                                </li>
-                                <li>
-                                    <button type="button" x-on:click="goToLastPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &raquo;
-                                    </button>
-                                </li>
-                                </ul>
-                            </div>
+                            <?php
+                            /*
+                             * Approve / Reject sit on the row they act on. They replace a
+                             * standalone form that asked the admin to copy a tracking ID out
+                             * of this table and type it back into a text box -- one
+                             * transposed character away from approving the wrong deposit,
+                             * and it accepted IDs for records not even listed here.
+                             *
+                             * The buttons post the same fields to the same handler, so the
+                             * locking and crediting logic at the top of this file is
+                             * untouched.
+                             */
+                            data_table([
+                                'id'       => 'pending-deposits',
+                                'label'    => 'deposit',
+                                'rows'     => $deposits_records,
+                                'key'      => 'id',
+                                'search'   => ['trackingID', 'email', 'account', 'description'],
+                                'empty'    => 'No deposits are waiting for approval.',
+                                'columns'  => [
+                                    ['label' => '#',          'field' => 'id'],
+                                    ['label' => 'TrackingID', 'field' => 'trackingID'],
+                                    ['label' => 'Email',      'field' => 'email'],
+                                    ['label' => 'Phone',      'field' => 'account'],
+                                    ['label' => 'Amount',     'field' => 'amount', 'numeric' => true],
+                                    ['label' => 'Transaction Message', 'field' => 'description'],
+                                    ['label' => 'Time',       'field' => 'time'],
+                                ],
+                                'actions'  => [
+                                    ['label' => 'Approve', 'style' => 'success', 'field' => 'trackingID',
+                                     'post'  => ['action' => 'Success'],
+                                     'confirm' => 'Approve deposit {value}? This credits the wallet and pays referral commission.'],
+                                    ['label' => 'Reject',  'style' => 'danger',  'field' => 'trackingID',
+                                     'post'  => ['action' => 'Declined'],
+                                     'confirm' => 'Reject deposit {value}?'],
+                                ],
+                            ]);
+                            ?>
                         </div>
                     </div>
                 </div>

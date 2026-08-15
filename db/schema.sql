@@ -79,6 +79,10 @@ CREATE TABLE wallets (
     status             VARCHAR(10) NOT NULL DEFAULT 'Active',
     invite_income      VARCHAR(10) NOT NULL DEFAULT '0',
     today_income       VARCHAR(10) NOT NULL DEFAULT '0',
+    -- Which claim period today_income was last written in. The nightly job
+    -- used to zero that column; it now rolls over on the first credit of a
+    -- new period, so nothing has to run at midnight for it to read correctly.
+    income_period      DATE        NULL     DEFAULT NULL,
     level              VARCHAR(20) NOT NULL DEFAULT 'lvl1',
     withdrawal_account VARCHAR(15)  NOT NULL DEFAULT '',
     withdrawal_name    VARCHAR(50)  NOT NULL DEFAULT '',
@@ -105,12 +109,22 @@ CREATE TABLE transactions (
     status      VARCHAR(10)  NOT NULL DEFAULT 'Pending',
     description VARCHAR(255) NOT NULL DEFAULT '',
     fees        VARCHAR(10)  NOT NULL DEFAULT '0',
+    -- The provider's own transaction UUID for M-Pesa deposits. It is what
+    -- Palpluss quotes in callbacks and in support, so it is the reference we
+    -- key on. Non-provider rows (transfers, commissions) still carry a
+    -- locally generated value or nothing at all.
     trackingID  VARCHAR(50)  NOT NULL DEFAULT '',
+    -- The reference we generated and sent as accountReference and
+    -- Idempotency-Key. Kept so a deposit can be traced from our side even
+    -- before the provider answers, and so a callback quoting our reference
+    -- rather than theirs still finds the row.
+    local_ref   VARCHAR(50)  NOT NULL DEFAULT '',
     account     VARCHAR(255) NOT NULL DEFAULT '',
     name        VARCHAR(50)  NOT NULL DEFAULT '',
     method      VARCHAR(10)  NOT NULL DEFAULT 'mpesa',
     KEY idx_tx_user     (userID),
     KEY idx_tx_tracking (trackingID),
+    KEY idx_tx_local    (local_ref),
     KEY idx_tx_type     (type),
     KEY idx_tx_status   (status)
 ) ENGINE=InnoDB;
@@ -159,12 +173,20 @@ CREATE TABLE orders (
     time      TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
     returns   VARCHAR(10) NOT NULL DEFAULT '0',
     type      VARCHAR(10) NOT NULL,
+    -- Superseded by the claim_period / claims_in_period pair below. Kept so a
+    -- rollback has something to fall back on; every claim still zeroes it.
     rolls     INT         NOT NULL DEFAULT 1,
+    -- Which claim period the counter belongs to, keyed by the date the window
+    -- opened. NULL means this order has never been claimed.
+    claim_period     DATE     NULL DEFAULT NULL,
+    claims_in_period INT      NOT NULL DEFAULT 0,
+    last_claim_at    DATETIME NULL DEFAULT NULL,
     amount    VARCHAR(10) NOT NULL DEFAULT '0',
     KEY idx_orders_user   (userID),
     KEY idx_orders_type   (type),
     KEY idx_orders_prod   (prodID),
-    KEY idx_orders_status (status)
+    KEY idx_orders_status (status),
+    KEY idx_orders_claim_period (claim_period)
 ) ENGINE=InnoDB;
 
 
@@ -185,7 +207,14 @@ CREATE TABLE controls (
     transactionAccount VARCHAR(10) NOT NULL DEFAULT '183',
     withFee            VARCHAR(10) NOT NULL DEFAULT '5',
     minTransfer        VARCHAR(10) NOT NULL DEFAULT '500',
-    tranFee            INT         NOT NULL DEFAULT 2
+    tranFee            INT         NOT NULL DEFAULT 2,
+    -- Daily claim window. '0' on claimWindowOn accepts claims at any hour,
+    -- which is how the platform behaved before the window existed.
+    claimWindowOn      VARCHAR(1)  NOT NULL DEFAULT '1',
+    claimOpensAt       TIME        NOT NULL DEFAULT '07:00:00',
+    -- NULL means the window stays open until it next opens.
+    claimClosesAt      TIME        NULL     DEFAULT NULL,
+    claimsPerDay       INT         NOT NULL DEFAULT 1
 ) ENGINE=InnoDB;
 
 

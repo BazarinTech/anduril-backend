@@ -24,13 +24,24 @@ $data = $fileGetContent->get_content();
     // $status = $data['status'];
     // $account = $data['result']['Phone'];
     
-    $trackingID = $data['transaction']['external_reference'] ?? '';
+    /**
+     * The reference the callback quotes.
+     *
+     * Deposits are keyed on the provider's own `transactionId` UUID, which is
+     * what the top-up API returns and what it should quote back. `transaction_id`
+     * is read first for that reason; `external_reference` is the field the
+     * older endpoint used and is still accepted.
+     */
+    $trackingID = $data['transaction']['transaction_id']
+        ?? $data['transaction']['transactionId']
+        ?? $data['transaction']['external_reference']
+        ?? '';
     $reference = $data['transaction']['mpesa_receipt'] ?? '';
     $status = $data['transaction']['status'] ?? '';
     $account = $data['transaction']['phone_number'] ?? '';
 
     if ($trackingID === '') {
-        error_log('[palpluss_deposit] rejected: callback carried no external_reference');
+        error_log('[palpluss_deposit] rejected: callback carried no transaction reference');
         http_response_code(400);
         echo json_encode(['status' => 'error', 'message' => 'Missing reference']);
         exit;
@@ -38,6 +49,27 @@ $data = $fileGetContent->get_content();
 
     //get transaction details
     $transactions = $query->select('transactions', '*', ['trackingID' => $trackingID, 'status' => "Pending"]);
+
+    /**
+     * Fall back to our own reference.
+     *
+     * We send `accountReference` and `Idempotency-Key` as a value we generate,
+     * and store it in `local_ref`. If the provider echoes that back instead of
+     * its own UUID, matching on trackingID alone would find nothing and the
+     * deposit would sit Pending forever with the customer's money taken. This
+     * makes the lookup work either way, and says which path it took so the
+     * assumption can be checked against real traffic.
+     */
+    if (empty($transactions)) {
+        $transactions = $query->select('transactions', '*', ['local_ref' => $trackingID, 'status' => "Pending"]);
+
+        if (!empty($transactions)) {
+            error_log("[palpluss_deposit] matched {$trackingID} on local_ref, not transactionId");
+            // Key everything below on the row's own trackingID so the claim
+            // and the status update address the right row.
+            $trackingID = $transactions[0]['trackingID'];
+        }
+    }
 
     // A replayed or unknown reference matches nothing. Acknowledge it so the
     // provider stops retrying, but do not touch a wallet. This also removes

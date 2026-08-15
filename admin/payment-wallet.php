@@ -7,16 +7,10 @@ if (isset($_POST['submit'])) {
     $phone = $_POST['phone'];
     $post_data = [
         'amount' => (float) $amount,
-        'phone_number' => $phone,
-        "channel_id" => 1549, 
-        "provider" => "sasapay",
-        "network_code" => "63902", 
-        "external_reference" => "INV-009",
-        "customer_name" =>"John Doe",
-        "callback_url" => "https://example.com/callback.php"
+        'phone' => $phone,
     ];
 
-    $initiate = $curl->request('https://backend.payhero.co.ke/api/v2/payments', 'POST', $post_data);
+    $initiate = $curl->request('https://api.palpluss.com/v1/wallets/b2c/topups', 'POST', $post_data);
 
     if (isset($initiate['error_code'])) {
         $error = $initiate['error_message'];

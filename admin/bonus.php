@@ -136,196 +136,39 @@ if (isset($_POST['submit'])) {
                         <div class="card">
                         <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Bonus Records</h2>
                         
-                        <div class="overflow-auto" x-data="{ 
-  items: <?= htmlspecialchars(json_encode($bonus_records), ENT_QUOTES, 'UTF-8') ?>,
-  searchTerm: '',
-  currentPage: 1,
-  itemsPerPage: 3,
-  
-  get filteredItems() {
-    if (!this.searchTerm) return this.items;
-    
-    const searchLower = this.searchTerm.toLowerCase();
-    return this.items.filter(item => 
-      item.name.toLowerCase().includes(searchLower) || 
-      item.target.toLowerCase().includes(searchLower) || 
-      item.type.toLowerCase().includes(searchLower) || 
-      item.income.toLowerCase().includes(searchLower) || 
-      item.status.toLowerCase().includes(searchLower) || 
-      item.time.toLowerCase().includes(searchLower)
-    );
-  },
-  
-  get totalPages() {
-    return Math.ceil(this.filteredItems.length / this.itemsPerPage);
-  },
-  
-  get paginatedItems() {
-    const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-    const endIndex = startIndex + this.itemsPerPage;
-    return this.filteredItems.slice(startIndex, endIndex);
-  },
-  
-  nextPage() {
-    if (this.currentPage < this.totalPages) {
-      this.currentPage++;
-    }
-  },
-  
-  prevPage() {
-    if (this.currentPage > 1) {
-      this.currentPage--;
-    }
-  },
-  
-  goToPage(page) {
-    if (page >= 1 && page <= this.totalPages) {
-      this.currentPage = page;
-    }
-  },
-  
-  goToFirstPage() {
-    this.currentPage = 1;
-  },
-  
-  goToLastPage() {
-    this.currentPage = this.totalPages;
-  }
-}">
-  <div class="mb-4">
-    <input 
-      type="text" 
-      x-model="searchTerm" 
-      placeholder="Search..." 
-      class="form-input w-full md:w-64"
-    />
-  </div>
-  <caption class="caption-top">
-    <span class="text-muted">Double Click field To Edit Table.</span>
-  </caption>
-  <table class="min-w-[640px] w-full mt-4 table-hover">
-    <thead>
-      <tr class="ltr:text-left rtl:text-right">
-        <th>#</th>
-        <th>Bonus Name</th>
-        <th>Bonus Target</th>
-        <th>Target Type</th>
-        <th>Bonus Type</th>
-        <th>Bonus Income</th>
-        <th>Status</th>
-        <th>Date Created</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      <template x-for="item in paginatedItems" :key="item.id">
-        <tr x-show="showElement" x-data="{ showElement: true }">
-          <td x-text="item.id"></td>
-          <td>
-            <span x-text="item.name" x-on:dblclick="
-              item.editing = <?= $isEdit ?>;
-              $nextTick(() => $refs.name.focus());
-            " x-show="!item.editing"></span>
-            <input type="text" class="form-input" x-ref="name" x-model="item.name" x-on:keydown.enter="item.editing = false; updater(item.id, 'name', item.name);" x-show="item.editing" />
-          </td>
-          <td>
-            <span x-text="item.target" x-on:dblclick="
-              item.editing = <?= $isEdit ?>;
-              $nextTick(() => $refs.target.focus());
-            " x-show="!item.editing"></span>
-            <input type="text" class="form-input" x-ref="target" x-model="item.target" x-on:keydown.enter="item.editing = false; updater(item.id, 'target', item.target);" x-show="item.editing" />
-          </td>
-          <td>
-            <span x-text="item.target_type" x-on:dblclick="
-              item.editing = <?= $isEdit ?>;
-              $nextTick(() => $refs.target_type.focus());
-            " x-show="!item.editing"></span>
-            <input type="text" class="form-input" x-ref="target" x-model="item.target_type" x-on:keydown.enter="item.editing = false; updater(item.id, 'type', item.target_type);" x-show="item.editing" />
-          </td>
-          <td>
-            <span x-text="item.type" x-on:dblclick="
-              item.editing = <?= $isEdit ?>;
-              $nextTick(() => $refs.type.focus());
-            " x-show="!item.editing"></span>
-            <input type="text" class="form-input" x-ref="type" x-model="item.type" x-on:keydown.enter="item.editing = false; updater(item.id, 'reward_type', item.type);" x-show="item.editing" />
-          </td>
-          <td>
-            <span x-text="item.income" x-on:dblclick="
-              item.editing = <?= $isEdit ?>;
-              $nextTick(() => $refs.income.focus());
-            " x-show="!item.editing"></span>
-            <input type="number" class="form-input" x-ref="income" x-model="item.income" x-on:keydown.enter="item.editing = false; updater(item.id, 'reward', item.income);" x-show="item.editing" />
-          </td>
-          <td>
-            <span x-text="item.status" x-bind:class="item.status === 'Active' ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'" x-on:dblclick="
-                    item.editing = <?= $isEdit ?>;
-                    $nextTick(() => $refs.status.focus());
-                " x-show="!item.editing" class='px-2 rounded py-1'></span>
-            <select class="form-select" x-ref="status" x-model="item.status" x-on:keydown.enter="item.editing = false; updater(item.id, 'status', item.status);" x-show="item.editing">
-                <option value='Active'>Active</option>
-                <option value='Inactive'>Inactive</option>
-            </select>
-        </td>
-          <td>
-            <span x-text="item.time" x-on:dblclick="
-              item.editing = <?= $isEdit ?>;
-              $nextTick(() => $refs.time.focus());
-            " x-show="!item.editing"></span>
-            <input type="text" class="form-input" x-ref="time" x-model="item.time" x-on:keydown.enter="item.editing = false" x-show="item.editing" />
-          </td>
-          <td>
-            <button class="text-danger <?= $isEdit ? '' : 'hidden' ?> ltr:ml-2 rtl:mr-2" x-on:click="showElement = false; deleteItem('bonus', item.id)">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="inline-block w-5 h-5">
-                <path fill="currentColor" d="M17 6H22V8H20V21C20 21.5523 19.5523 22 19 22H5C4.44772 22 4 21.5523 4 21V8H2V6H7V3C7 2.44772 7.44772 2 8 2H16C16.5523 2 17 2.44772 17 3V6ZM18 8H6V20H18V8ZM9 11H11V17H9V11ZM13 11H15V17H13V11ZM9 4V6H15V4H9Z"></path>
-              </svg>
-            </button>
-          </td>
-        </tr>
-      </template>
-    </tbody>
-  </table>
-  <ul class="inline-flex items-center gap-1 m-auto mb-4 float-right mt-5">
-                                <li>
-                                    <button type="button" x-on:click="goToFirstPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &laquo;
-                                    </button>
-                                </li>
-                                <li>
-                                    <button type="button" x-on:click="prevPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &lsaquo;
-                                    </button>
-                                </li>
-                            
-                                <!-- Dynamic page numbers -->
-                                <template x-for="page in [...Array(totalPages).keys()].map(i => i + 1).filter(p => {
-                                    if (totalPages <= 5) return true;
-                                    if (currentPage <= 3) return p <= 5;
-                                    if (currentPage >= totalPages - 2) return p >= totalPages - 4;
-                                    return p >= currentPage - 2 && p <= currentPage + 2;
-                                })">
-                                    <li>
-                                        <button 
-                                            type="button"
-                                            x-text="page"
-                                            x-on:click="goToPage(page)"
-                                            :class="page === currentPage ? 'bg-primary text-white border-primary' : 'border dark:border-slate-700 text-black'" 
-                                            class="px-3 py-2 rounded-full hover:bg-primary/90 hover:text-white transition"
-                                        ></button>
-                                    </li>
-                                </template>
-                            
-                                <li>
-                                    <button type="button" x-on:click="nextPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &rsaquo;
-                                    </button>
-                                </li>
-                                <li>
-                                    <button type="button" x-on:click="goToLastPage()" class="flex justify-center px-2 py-2 text-black transition border rounded-full hover:text-white hover:bg-primary/90 dark:border-slate-700">
-                                        &raquo;
-                                    </button>
-                                </li>
-                                </ul>
-</div>
+  <?php
+  /*
+   * Two columns here read one DB column and write another, which is how the
+   * original inline editors were wired: the "Target Type" cell shows bonus.type
+   * and the "Bonus Type" cell shows bonus.reward_type. The mapping is preserved
+   * rather than corrected, so nothing about the data changes.
+   */
+  data_table([
+      'id'         => 'bonus',
+      'label'      => 'bonus',
+      'rows'       => $bonus_records,
+      'key'        => 'id',
+      'update'     => 'actions/update_bonus.php',
+      'resource'   => 'bonus',
+      'can_edit'   => $isEdit,
+      'can_delete' => $isEdit,
+      'search'     => ['name', 'type', 'target_type', 'status'],
+      'empty'      => 'No bonuses configured yet.',
+      'columns'    => [
+          ['label' => '#',            'field' => 'id'],
+          ['label' => 'Bonus Name',   'field' => 'name',        'edit' => 'name'],
+          ['label' => 'Bonus Target', 'field' => 'target',      'edit' => 'target',      'type' => 'number', 'numeric' => true],
+          ['label' => 'Target Type',  'field' => 'target_type', 'edit' => 'type'],
+          ['label' => 'Bonus Type',   'field' => 'type',        'edit' => 'reward_type'],
+          ['label' => 'Bonus Income', 'field' => 'income',      'edit' => 'reward',      'type' => 'number', 'numeric' => true],
+          ['label' => 'Status',       'field' => 'status',      'edit' => 'status',
+           'type'  => 'select',       'options' => ['Active' => 'Active', 'Inactive' => 'Inactive'],
+           'badge' => ['Active' => 'success', '*' => 'danger']],
+          ['label' => 'Date Created', 'field' => 'time',
+           'hint'  => 'Recorded when the bonus was created.'],
+      ],
+  ]);
+  ?>
                         </div>
                     </div>
                 </div>
@@ -343,40 +186,6 @@ if (isset($_POST['submit'])) {
 <script  src="assets/libs/%40alpinejs/persist/cdn.min.js"></script>
 <script  src="assets/libs/%40alpinejs/collapse/cdn.min.js"></script>
 <script  src="assets/libs/feather-icons/feather.min.js"></script>
-<script>
-function updater(id, field, value) {
-    fetch('actions/update_bonus.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id, field: field, value: value })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            console.log('User updated successfully');
-        } else {
-            console.error('Update failed:', data.message);
-        }
-    })
-    .catch(error => console.error('Error:', error));
-}
-function deleteItem(table, id) {
-    fetch('actions/delete_record.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, table })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            console.log('Record deleted successfully');
-        } else {
-            console.error('Deletion failed:', data.message);
-        }
-    })
-    .catch(error => console.error('Error:', error));
-}
-</script>
 
 </body>
 

@@ -1,23 +1,25 @@
 <?php
 /**
- * DAILY RESET
- * ===========
- * Phase 5.4. Re-arms every active investment for the day's claim and zeroes
- * the per-day income counter.
+ * DAILY RESET -- NO LONGER REQUIRED
+ * ================================
+ * This job used to be what made claiming work: every night it set
+ * `orders.rolls = 1` to re-arm the day's claim, and zeroed
+ * `wallets.today_income`.
  *
- * This is the job that makes the product work. Until now it lived behind a
- * button on admin/admin-roll.php that a human had to remember to press: miss a
- * day and nobody can claim; press it twice and everyone claims twice.
+ * Neither is needed now. Claimability is derived from the clock and each
+ * order's own claim counter (bootstrap/claims.php), and today_income rolls
+ * over on the first credit of a new period. Nothing has to fire at midnight
+ * for tomorrow to work.
  *
- * Install as a cron job, once a day, just after local midnight. On cPanel:
+ * The file stays, and stays harmless, because an installed cron entry will
+ * keep calling it until somebody removes that entry -- and a cron job that
+ * suddenly exits non-zero starts mailing the operator every night. It reports
+ * what changed and exits 0.
  *
- *     0 0 * * *  /usr/local/bin/php /home/USER/site/bin/daily-reset.php >> /home/USER/logs/daily-reset.log 2>&1
+ *     REMOVE THE CRON ENTRY when convenient:
+ *         crontab -e   # delete the daily-reset.php line
  *
- * Adjust the PHP binary path to whatever `which php` reports on the host --
- * cPanel usually wants the ea-php81 binary specifically.
- *
- * CLI ONLY. Refuses to run over HTTP, because a web-reachable "give everyone
- * another claim" endpoint is exactly the sort of thing that gets found.
+ * CLI ONLY, as before.
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -27,42 +29,19 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../bootstrap/api.php';
 
-$startedAt = date('Y-m-d H:i:s');
-echo "[{$startedAt}] daily reset starting\n";
+echo "[" . date('Y-m-d H:i:s') . "] daily reset\n";
+echo "  This job is no longer required.\n";
+echo "  Claiming is driven by the window on the admin Platform Control page;\n";
+echo "  it does not depend on anything running overnight.\n";
 
-$pdo = $db->getConnection();
+$window = claim_window(claim_settings($query));
 
-try {
-    $pdo->beginTransaction();
+echo "  Window: " . ($window['enabled'] ? 'enforced' : 'not enforced')
+    . ", opens " . $window['opens']
+    . ($window['closes'] ? ', closes ' . $window['closes'] : '')
+    . ", " . $window['per_day'] . " claim(s) per investment per day\n";
+echo "  Currently " . ($window['open'] ? 'OPEN' : 'CLOSED')
+    . " (period " . $window['period'] . ")\n";
+echo "  You can safely remove this entry from crontab.\n";
 
-    // Re-arm the claim on every live investment. Expired orders stay at 0 --
-    // the old button set `rolls = 1` on *every* row in the table, which handed
-    // a fresh claim to orders that had already run their course.
-    $arm = $pdo->prepare("UPDATE orders SET rolls = 1 WHERE type = 'investment' AND status = 'Active'");
-    $arm->execute();
-    $armed = $arm->rowCount();
-
-    // Reset the per-day income counter for everyone.
-    $reset = $pdo->prepare("UPDATE wallets SET today_income = '0.00' WHERE today_income <> '0.00'");
-    $reset->execute();
-    $cleared = $reset->rowCount();
-
-    $pdo->commit();
-
-    echo "  re-armed {$armed} active investment(s)\n";
-    echo "  cleared today_income on {$cleared} wallet(s)\n";
-    echo "[" . date('Y-m-d H:i:s') . "] done\n";
-
-    exit(0);
-} catch (\Throwable $e) {
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-
-    $message = 'daily reset FAILED: ' . $e->getMessage();
-    error_log('[daily-reset] ' . $message);
-    fwrite(STDERR, "  {$message}\n");
-
-    // Non-zero so cron's MAILTO actually tells somebody.
-    exit(1);
-}
+exit(0);

@@ -33,12 +33,24 @@ cp config/env.example.php config/env.php     # then fill it in
 mysql -u root -p < db/schema.sql
 mysql -u root -p < db/seed.sql
 
-# 3. Serve
-php -S 127.0.0.1:8000 -t .
+# 3. Serve  -- the router is not optional, see below
+php -S 127.0.0.1:8090 -t . bin/router.php
 ```
 
-The seed creates an admin (`admin@sanderson.local` / `admin123`), five test
-users (`test1234`), five products and a three-level referral tree.
+Then open <http://127.0.0.1:8090/admin/login>.
+
+**Always pass `bin/router.php`.** Production runs on Apache/LiteSpeed where
+`admin/.htaccess` rewrites extensionless URLs onto `.php` files, and the panel
+navigates entirely by extensionless paths — `header('Location: dashboard')`
+after login, every sidebar link, every form action. PHP's built-in server does
+not read `.htaccess`, so without the router every one of those 404s and the
+panel is unusable. The router reproduces that single rewrite, and also denies
+the directories that carry a deny-all `.htaccess` in production (`config/`,
+`bootstrap/`, `lib/`, `bin/`, `db/`) so local is not laxer than the server.
+
+The seed creates two admins — `admin@sanderson.local` / `admin123` and
+`bazarin@gmail.com` / `445566gh` — plus five test users (`test1234`), five
+products and a three-level referral tree.
 
 **Testing without touching live services.** Real environment variables override
 `config/env.php`, so point the outbound integrations at a closed port before
@@ -48,8 +60,12 @@ exercising anything that pays out or sends mail:
 SMTP_HOST=127.0.0.1 SMTP_PORT=1 \
 PALPLUSS_STK_URL=http://127.0.0.1:1/ PALPLUSS_B2C_URL=http://127.0.0.1:1/ \
 SMS_URL=http://127.0.0.1:1/ \
-PHP_CLI_SERVER_WORKERS=8 php -S 127.0.0.1:8000 -t .
+PHP_CLI_SERVER_WORKERS=8 php -S 127.0.0.1:8090 -t . bin/router.php
 ```
+
+`PHP_CLI_SERVER_WORKERS` matters if you are testing anything concurrent — the
+built-in server is single-threaded otherwise, which makes race conditions
+impossible to reproduce.
 
 The Palpluss key and the SMS gateway are **live**. Without those overrides, a
 withdrawal test attempts a real M-Pesa payout and a verification test sends a
@@ -95,17 +111,28 @@ explicit. Converting to `DECIMAL` is a schema migration nobody has done yet.
 ### The product
 
 Users deposit via M-Pesa, buy a **product** (an investment plan with a daily
-flat return and a duration), and claim that return once a day. Claims are
-gated by `orders.rolls`, which `bin/daily-reset.php` re-arms nightly.
+flat return and a duration), and claim that return once a day.
+
+Claimability is **derived, not stored**. An investment can be claimed when the
+clock is inside the daily window and that order has claims left for the current
+period — see `bootstrap/claims.php`. The window (opening time, optional closing
+time, claims per day) is set on the admin **Platform Control** page. Nothing has
+to run overnight; there is no flag to go stale.
+
+This replaced `orders.rolls`, a flag that had to be reset every night. Miss a
+night and nobody could claim; run the reset twice and everybody claimed twice.
+
 Referrers earn commission three levels up on their downlines' deposits, plus
 milestone bonuses, coupons and salary "incentives".
 
 ## Operations
 
-**Nightly cron** — without this, nobody can claim:
+**No cron is required.** `bin/daily-reset.php` used to re-arm claims nightly
+and was load-bearing; it is now a no-op that reports the current window and
+exits 0. If the crontab still calls it, that is harmless — but the entry can go:
 
-```cron
-0 0 * * * /usr/local/bin/php /home/USER/site/bin/daily-reset.php >> /home/USER/logs/daily-reset.log 2>&1
+```bash
+crontab -e   # delete the daily-reset.php line
 ```
 
 **Deploying.** `config/env.php` is gitignored, so it must exist on the server
@@ -117,6 +144,8 @@ every payment callback.
 ```bash
 php db/migrations/001_phase2_hashed_credentials.php   # required before Phase 2 code
 php db/migrations/002_phase4_column_fixes.php
+php db/migrations/003_deposit_provider_reference.php  # required for the Palpluss top-up API
+php db/migrations/004_claim_window.php                # required for the claim window
 ```
 
 ## Things that will bite you

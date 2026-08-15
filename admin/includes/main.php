@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/initiate.php';
+// Shared record-table renderer. Every listing page calls data_table().
+require_once __DIR__ . '/data-table.php';
 //GET DASHBAORD SUMMURIES AND DASHBOARD DATA
 
 // CHECK IF ADMIN IS LOGGED IN
@@ -144,7 +146,14 @@ foreach ($wallets as $row) {
         'income' => 'Kes '.number_format($row['income'], 2),
         'downline' => 'Kes '.number_format($row['invite_income'], 2),
         'withdrawals' => 'Kes '.number_format($withs, 2),
-        'deposits' => 'Kes '.number_format($deps, 2)
+        'deposits' => 'Kes '.number_format($deps, 2),
+        // Raw counterparts for the edit modal. The display values above are
+        // formatted strings, and the inline editor used to post them straight
+        // back -- MySQL received "Kes 1,200.00" for a DECIMAL column, which
+        // under STRICT_TRANS_TABLES is an error and otherwise truncates to 0.
+        'balance_raw' => $row['balance'],
+        'income_raw' => $row['income'],
+        'downline_raw' => $row['invite_income'],
     ];
 }
 
@@ -221,49 +230,63 @@ foreach ($transactions as $row) {
         'fee' => $row['fees'],
         'time' => $row['time'],
         'account' => $row['account'],
-        'method' => $row['method']
+        'method' => $row['method'],
+        // See the wallets note above: 'amount' carries a "Kes " prefix for
+        // display, so the editor reads the raw column instead.
+        'amount_raw' => $row['amount'],
     ];
+}
+
+/**
+ * The three pending queues are built by functions rather than inline, because
+ * the approval pages need to rebuild them.
+ *
+ * main.php is included at the top of every page, so these lists are computed
+ * *before* the page's own POST handler runs. Approving a deposit therefore
+ * used to re-render the page still showing that deposit as pending, and the
+ * obvious response -- clicking Approve again -- came back "Transaction is
+ * already approved!". Now the handler calls the matching function again on its
+ * way out, and the queue on screen reflects the action just taken.
+ */
+function pending_queue_records($query, array $where)
+{
+    $records = [];
+
+    foreach ($query->select('transactions', '*', $where, ['column' => 'ID', 'direction' => 'desc']) as $row) {
+        $user_trans = $query->select('users', '*', ['ID' => $row['userID']]);
+        $records[] = [
+            'id' => $row['ID'],
+            'email' => $user_trans[0]['email'] ?? '(user removed)',
+            'amount' => 'Kes '.$row['amount'] - $row['fees'],
+            'type' => $row['type'],
+            'status' => $row['status'],
+            'description' => $row['description'],
+            'fees' => $row['fees'],
+            'time' => $row['time'],
+            'account' => $row['account'],
+            'trackingID' => $row['trackingID'],
+            'method' => $row['method']
+        ];
+    }
+
+    return $records;
+}
+
+function pending_withdrawal_records($query)
+{
+    return pending_queue_records($query, ['type' => 'Withdraw', 'status' => 'Pending']);
+}
+
+function pending_deposit_records($query)
+{
+    return pending_queue_records($query, ['type' => 'Deposit', 'status' => 'Pending', 'method' => 'binance']);
 }
 
 //Pending Withdrawals
-$withdraw_records = [];
-$withdraw_transactions = $query->select('transactions', '*', ['type' => 'Withdraw', 'status' => 'Pending'], ['column' => 'ID', 'direction' => 'desc']);
-foreach ($withdraw_transactions as $row) {
-    $user_trans = $query->select('users', '*', ['ID' => $row['userID']]);
-    $withdraw_records[] = [
-        'id' => $row['ID'],
-        'email' => $user_trans[0]['email'] ?? '(user removed)',
-        'amount' => 'Kes '.$row['amount'] - $row['fees'],
-        'type' => $row['type'],
-        'status' => $row['status'],
-        'description' => $row['description'],
-        'fees' => $row['fees'],
-        'time' => $row['time'],
-        'account' => $row['account'],
-        'trackingID' => $row['trackingID'],
-        'method' => $row['method']
-    ];
-}
+$withdraw_records = pending_withdrawal_records($query);
 
 //Pending Deposits
-$deposits_records = [];
-$deposit_transactions = $query->select('transactions', '*', ['type' => 'Deposit', 'status' => 'Pending', 'method' => 'binance'], ['column' => 'ID', 'direction' => 'desc']);
-foreach ($deposit_transactions as $row) {
-    $user_trans = $query->select('users', '*', ['ID' => $row['userID']]);
-    $deposits_records[] = [
-        'id' => $row['ID'],
-        'email' => $user_trans[0]['email'] ?? '(user removed)',
-        'amount' => 'Kes '.$row['amount'] - $row['fees'],
-        'type' => $row['type'],
-        'status' => $row['status'],
-        'description' => $row['description'],
-        'fees' => $row['fees'],
-        'time' => $row['time'],
-        'account' => $row['account'],
-        'trackingID' => $row['trackingID'],
-        'method' => $row['method']
-    ];
-}
+$deposits_records = pending_deposit_records($query);
 
 //transaction controlls
 $transaction_controls = $query->select('controls');
@@ -295,14 +318,19 @@ foreach ($admins as $row) {
 }
 
 // Incentives and coupons
-$incentive_requests = $query->select('incentives_requests', '*', ['status' => 'Pending']);
-$incentive_applications = [];
-foreach ($incentive_requests as $row) {
-    $incentive_details = $query->select('incentives', '*', ['ID' => $row['incentiveID']]);
-    $user_details = $query->select('users', '*', ['ID' => $row['userID']]);
-    $incentive_applications[] = [
+// Rebuilt after an approval for the same reason as the queues above.
+function incentive_application_records($query)
+{
+    $records = [];
+
+    foreach ($query->select('incentives_requests', '*', ['status' => 'Pending']) as $row) {
+        $incentive_details = $query->select('incentives', '*', ['ID' => $row['incentiveID']]);
+        $user_details = $query->select('users', '*', ['ID' => $row['userID']]);
+        $records[] = [
             'ID' => $row['ID'],
-            'Incentive' => $incentive_details[0]['name'] ?? '(incentive removed)',
+            // Was 'Incentive'. The table renders item.incentive, and JS keys
+            // are case-sensitive, so the column came up blank on every row.
+            'incentive' => $incentive_details[0]['name'] ?? '(incentive removed)',
             'name' => $row['name'],
             'phone' => $row['phone'],
             'email' => $user_details[0]['email'] ?? '(user removed)',
@@ -310,7 +338,12 @@ foreach ($incentive_requests as $row) {
             'date' => $row['date'],
             'status' => $row['status']
         ];
+    }
+
+    return $records;
 }
+
+$incentive_applications = incentive_application_records($query);
 
 $incentives = $query->select('incentives', '*', [], ['direction' => 'desc', 'column' => 'ID']);
 $coupons = $query->select('coupons', '*', [], ['direction' => 'desc', 'column' => 'ID']);

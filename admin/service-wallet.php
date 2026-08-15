@@ -10,10 +10,14 @@ if (isset($_POST['submit'])) {
         'phone' => $phone
     ];
 
-    $initiate = $curl->request('https://api.palpluss.com/v1/wallets/service/topups', 'POST', $post_data);
+    $initiate = $curl->request(env('PALPLUSS_SERVICE_TOPUP_URL'), 'POST', $post_data);
 
-    if (isset($initiate['error_code'])) {
-        $error = $initiate['error_message'];
+    // An unreachable provider returns null; reading array keys off it warned
+    // and then reported success for a top-up that never happened.
+    if (!is_array($initiate)) {
+        $error = 'Payment provider is unreachable. Please try again shortly.';
+    } elseif (isset($initiate['error_code'])) {
+        $error = $initiate['error_message'] ?? 'Top-up was rejected.';
     }else{
         $msg = "Payment Initiated Successfully";
     }

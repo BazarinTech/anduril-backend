@@ -32,11 +32,29 @@ if (isset($data['userID']) && isset($data['orderID'])) {
          * read 1, both passed the check, and both paid out -- as many times as
          * you could get requests in flight before the first write landed.
          *
-         * The claim is now a single conditional UPDATE that only matches while
-         * rolls is still 1. Exactly one caller can see a row count of 1, and
-         * everyone else is told the claim is already taken. The wallet lock
-         * that follows protects the credit arithmetic itself.
+         * The claim is still a single conditional UPDATE, so exactly one
+         * caller can see a row count of 1 and everyone else is told the claim
+         * is already taken. What changed is the condition: it is now "this
+         * order has claims left in the current period" rather than "somebody
+         * set rolls back to 1 last night". See bootstrap/claims.php.
+         *
+         * The wallet lock that follows protects the credit arithmetic itself.
          */
+        $window = claim_window(claim_settings($query));
+
+        // Refuse outside the window before touching anything. Doing this first
+        // means a closed window costs one query, not a transaction.
+        if (!$window['open']) {
+            $fileGetContent->send_content([
+                'status'         => 'Error',
+                'message'        => $window['message'],
+                'order'          => $orderID,
+                'claim_opens_at' => $window['opens'],
+                'next_claim_at'  => $window['next_open'],
+            ]);
+            exit;
+        }
+
         $pdo->beginTransaction();
 
         try {
@@ -60,13 +78,22 @@ if (isset($data['userID']) && isset($data['orderID'])) {
                 exit;
             }
 
-            // Take the claim, or discover somebody already has it.
-            if (!claim_order_roll($pdo, $orderID, $userID)) {
+            // Take the claim, or discover this order has none left today.
+            if (!take_order_claim($pdo, $orderID, $userID, $window)) {
                 $pdo->rollBack();
+
+                $perDay = $window['per_day'];
+
                 $fileGetContent->send_content([
                     'status'  => 'Error',
-                    'message' => 'Seems you have already claimed this order, please comeback later for another claim',
-                    'order'   => $order['ID'],
+                    'message' => $perDay > 1
+                        ? 'This order has used all ' . $perDay . ' of its claims for today. Please come back tomorrow.'
+                        : 'You have already claimed this order today. Please come back tomorrow.',
+                    'order'          => $order['ID'],
+                    'claim_opens_at' => $window['opens'],
+                    // The window is open right now -- what this caller is
+                    // waiting for is the *next* one.
+                    'next_claim_at'  => $window['next_period_open'],
                 ]);
                 exit;
             }
@@ -94,13 +121,18 @@ if (isset($data['userID']) && isset($data['orderID'])) {
             $newBalance = money($user_wallet['balance']) + $profit;
             $newIncome  = money($user_wallet['income']) + $profit;
             $newRemainingDays = (int) $order['remaining'] - 1;
-            $todayIncome = money($user_wallet['today_income']) + $profit;
+
+            // today_income used to be zeroed by the nightly job. It now rolls
+            // over on the first credit of a new period, so it reads correctly
+            // without anything having had to run at midnight.
+            $todayIncome = wallet_day_income($user_wallet, $profit, $window);
 
             // Update wallet
             $query->update('wallets', [
-                'balance' => money_str($newBalance),
-                'income'  => money_str($newIncome),
-                'today_income' => money_str($todayIncome)
+                'balance'       => money_str($newBalance),
+                'income'        => money_str($newIncome),
+                'today_income'  => $todayIncome,
+                'income_period' => $window['period'],
             ], ['userID' => $userID]);
 
             // The old description claimed the capital had been returned. It

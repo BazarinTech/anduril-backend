@@ -44,8 +44,16 @@ return [
     'PALPLUSS_KEY'           => '',
     'PALPLUSS_CHANNEL_ID'    => '',
     'PALPLUSS_CREDENTIAL_ID' => '',
-    'PALPLUSS_STK_URL'       => 'https://api.palpluss.com/v1/payments/stk',
+    // Deposit STK push (returns a transactionId UUID, accepts Idempotency-Key)
+    'PALPLUSS_TOPUP_URL'     => 'https://api.palpluss.com/v1/wallets/b2c/topups',
     'PALPLUSS_B2C_URL'       => 'https://api.palpluss.com/v1/b2c/payouts',
+
+    // Float balances shown on the admin dashboard.
+    'PALPLUSS_B2C_BALANCE_URL'     => 'https://api.palpluss.com/v1/wallets/b2c/balance',
+    'PALPLUSS_SERVICE_BALANCE_URL' => 'https://api.palpluss.com/v1/wallets/service/balance',
+
+    // Topping up the service wallet from admin/service-wallet.php.
+    'PALPLUSS_SERVICE_TOPUP_URL'   => 'https://api.palpluss.com/v1/wallets/service/topups',
 
     // Base URL the payment provider posts callbacks back to.
     'CALLBACK_BASE_URL' => 'https://example.com/backend/mains/callbacks',

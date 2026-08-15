@@ -186,6 +186,14 @@ if (isset($data['userID'])) {
             $product_by_id[(string) $p['ID']] = $p;
         }
 
+        /**
+         * Claim state is derived, not stored. `orders.rolls` used to answer
+         * "can this be claimed?", which meant the answer was only correct if
+         * something had run overnight to set it. The window is computed once
+         * here and applied to every order in the loop.
+         */
+        $claim_window = claim_window(claim_settings($query));
+
         $active_investments = 0;
         $total_return = 0;
         $user_orders = [];
@@ -210,6 +218,30 @@ if (isset($data['userID'])) {
                 $rem = ($final_time - time()) / 86400;
             }
             
+            /**
+             * Three separate reasons an order cannot be claimed, and the app
+             * should be able to tell them apart: the window is shut, today's
+             * claims are spent, or the investment has finished.
+             */
+            $claims_left = order_claims_left($order, $claim_window);
+
+            if ($order['status'] !== 'Active') {
+                $claimable    = false;
+                $claim_reason = 'This investment has matured.';
+            } elseif (!$claim_window['open']) {
+                $claimable    = false;
+                $claim_reason = $claim_window['message'];
+            } elseif ($claims_left < 1) {
+                $claimable    = false;
+                $claim_reason = 'Already claimed today. Opens again at '
+                    . claim_pretty_time($claim_window['opens']) . '.';
+            } else {
+                $claimable    = true;
+                $claim_reason = $claim_window['per_day'] > 1
+                    ? $claims_left . ' of ' . $claim_window['per_day'] . ' claims left today.'
+                    : 'Ready to claim.';
+            }
+
             $user_orders[] = [
                 'ID' => $order['ID'],
                 // A product deleted out from under an existing order must not
@@ -225,7 +257,25 @@ if (isset($data['userID'])) {
                 'return_rate' => $user_product[0]['returns'] ?? 0,
                 'remaining' => $rem,
                 'image' => $user_product[0]['image'] ?? '',
-                'roll' => $order['rolls']
+                /**
+                 * `roll` stays a 0/1 int because that is the contract the app
+                 * already reads -- it disables the claim button on 0. What it
+                 * means has changed underneath: it is now "claimable right
+                 * now", computed from the window and this order's own counter,
+                 * rather than a flag waiting to be reset.
+                 */
+                'roll' => $claimable ? 1 : 0,
+
+                // Richer state, for a UI that wants to say more than
+                // "please come back later".
+                'claimable'      => $claimable,
+                'claims_left'    => $claims_left,
+                'claims_per_day' => $claim_window['per_day'],
+                'claim_reason'   => $claim_reason,
+                'claim_opens_at' => $claim_window['opens'],
+                'claim_closes_at'=> $claim_window['closes'],
+                'next_claim_at'  => $claimable ? null : ($claims_left < 1 ? $claim_window['next_period_open'] : $claim_window['next_open']),
+                'last_claim_at'  => $order['last_claim_at'] ?? null,
             ];
 
         }
@@ -317,6 +367,23 @@ if (isset($data['userID'])) {
                 'minTransfer' => $control['minTransfer'],
                 'withFee' => $control['withFee'],
                 'tranFee' => $control['tranFee']
+            ],
+            /**
+             * The window itself, so the app can show one banner ("Claiming
+             * opens at 7:00 AM") instead of repeating the same reason on every
+             * order card, and can count down to next_opens_at without polling.
+             */
+            'claim_window' => [
+                'enforced'      => $claim_window['enabled'],
+                'open'          => $claim_window['open'],
+                'opens_at'      => $claim_window['opens'],
+                'closes_at'     => $claim_window['closes'],
+                'claims_per_day'=> $claim_window['per_day'],
+                'next_opens_at' => $claim_window['next_open'],
+                'closes_on'     => $claim_window['closes_at'],
+                'message'       => $claim_window['message'],
+                'server_time'   => date('Y-m-d H:i:s'),
+                'timezone'      => date_default_timezone_get(),
             ],
             'incentives' => $incentives
         ];

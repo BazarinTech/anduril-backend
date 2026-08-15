@@ -23,9 +23,13 @@ USE sanderson;
 -- Platform settings -- exactly one row, forever.
 -- -----------------------------------------------------------------------------
 INSERT INTO controls
-    (minWith, minDep, level1, level2, level3, transactionType, transactionAccount, withFee, minTransfer, tranFee)
+    (minWith, minDep, level1, level2, level3, transactionType, transactionAccount, withFee, minTransfer, tranFee,
+     claimWindowOn, claimOpensAt, claimClosesAt, claimsPerDay)
 VALUES
-    ('200', '100', '10', '5', '3', 'Auto', '183', '5', '500', 2);
+    ('200', '100', '10', '5', '3', 'Auto', '183', '5', '500', 2,
+     -- Claiming opens at 07:00 and stays open until it opens again, one claim
+     -- per investment per day. Changed on the admin Platform Control page.
+     '1', '07:00:00', NULL, 1);
 
 
 -- -----------------------------------------------------------------------------
@@ -88,6 +92,22 @@ INSERT INTO wallets (userID) VALUES (1);
 -- users.passwrd. It is seeded consistently anyway so nothing reads a blank.
 INSERT INTO admins (userID, roles, permissions, status, username, name, email, phone)
 VALUES (1, 'superadmin', '[view][edit][add][finance]', 'Active', 'admin', 'Site Admin', 'admin@sanderson.local', '254700000001');
+
+
+-- -----------------------------------------------------------------------------
+-- Second administrator.
+--   Panel login:  bazarin@gmail.com / 445566gh
+--
+-- Full permissions, including [finance] -- that gates the approval pages and
+-- the wallet balance editors.
+-- -----------------------------------------------------------------------------
+INSERT INTO users (ID, email, phone, passwrd, status, upline, name, username, role, country)
+VALUES (7, 'bazarin@gmail.com', '254700000007', '$2y$10$EBWuM.XJ4l95gajzVzZDkeocGeejRx1otGG5AV7e43IJvnOk4FufG', 'Active', 0, 'Bazarin', 'bazarin', 'admin', '254');
+
+INSERT INTO wallets (userID) VALUES (7);
+
+INSERT INTO admins (userID, roles, permissions, status, username, name, email, phone)
+VALUES (7, 'superadmin', '[view][edit][add][finance]', 'Active', 'bazarin', 'Bazarin', 'bazarin@gmail.com', '254700000007');
 
 
 -- -----------------------------------------------------------------------------
