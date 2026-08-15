@@ -23,19 +23,19 @@ function create_tracking_ID() {
 // payment method auto mpesa function for palpluss
 function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
     $headers = [
-        'Authorization: Basic pp_live_537b508caed8ce9e4a39d3f38d975b039b1df6ac355f3851'
+        'Authorization: Basic ' . env('PALPLUSS_KEY')
     ];
 
     $data = [
         "amount" => (float) $amount,
         "phone" => $account,
         "accountReference" => $trackingID,
-        "callbackUrl" => "https://sanderson.xgramm.com/backend/mains/callbacks/palpluss_deposit_callback.php",
-        "channelId" => "3ddecb83-8d6e-4790-ba8d-580af6fd4fd7",
-        "credential_id" => "29745e7f-4802-4766-a1b0-984d9965ff04"
+        "callbackUrl" => callback_url('palpluss_deposit_callback.php'),
+        "channelId" => env('PALPLUSS_CHANNEL_ID'),
+        "credential_id" => env('PALPLUSS_CREDENTIAL_ID')
     ];
-    
-    $inititate = $api->request('https://api.palpluss.com/v1/payments/stk', 'POST', $data, $headers);
+
+    $inititate = $api->request(env('PALPLUSS_STK_URL'), 'POST', $data, $headers);
     
 
     if ($inititate['success']) {

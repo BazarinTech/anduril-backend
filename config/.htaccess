@@ -1,0 +1,13 @@
+# Nothing in config/ may be served over HTTP.
+# The files return PHP arrays, so a direct hit would render blank rather than
+# leak — but a misconfigured handler (PHP disabled, .php.bak, editor swapfile)
+# would serve them as plain text. Deny outright.
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

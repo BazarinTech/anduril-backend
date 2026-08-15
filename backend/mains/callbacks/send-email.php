@@ -14,15 +14,15 @@ function send_email($recipient_email, $subject, $body){
         
         // SMTP Settings
         $mail->isSMTP();
-        $mail->Host       = 'mail.xgramm.com';
+        $mail->Host       = env('SMTP_HOST');
         $mail->SMTPAuth   = true;
-        $mail->Username   = 'noreply@uvix-market.cc';
-        $mail->Password   = 'Bazarin@tech1';
+        $mail->Username   = env('SMTP_USER');
+        $mail->Password   = env('SMTP_PASS');
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = 587;
-    
+        $mail->Port       = (int) env('SMTP_PORT', 587);
+
         // Email setup
-        $mail->setFrom('noreply@uvix-market.cc', 'Sanderson Farm');
+        $mail->setFrom(env('SMTP_FROM'), env('SMTP_FROM_NAME'));
         $mail->addAddress($recipient_email);
     
         $mail->isHTML(true);

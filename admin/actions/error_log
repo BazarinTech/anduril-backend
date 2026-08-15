@@ -1,6 +1,0 @@
-[22-Jan-2026 07:46:08 UTC] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'total_income' in 'SET' in /home2/xgrammco/grover.xgramm.com/admin/vendor/bazarin/bazarin-php-library/src/Database/QueryBuilder.php:85
-Stack trace:
-#0 /home2/xgrammco/grover.xgramm.com/admin/vendor/bazarin/bazarin-php-library/src/Database/QueryBuilder.php(85): PDOStatement->execute()
-#1 /home2/xgrammco/grover.xgramm.com/admin/actions/update_wallets.php(17): Bazarin\Database\QueryBuilder->update('wallets', Array, Array)
-#2 {main}
-  thrown in /home2/xgrammco/grover.xgramm.com/admin/vendor/bazarin/bazarin-php-library/src/Database/QueryBuilder.php on line 85

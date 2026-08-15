@@ -73,16 +73,16 @@ function create_tracking_ID() {
 // Palplus auto payment method
 function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
     $headers = [
-        'Authorization: Basic pp_live_537b508caed8ce9e4a39d3f38d975b039b1df6ac355f3851'
+        'Authorization: Basic ' . env('PALPLUSS_KEY')
     ];
     $data = [
         "amount" => (float) $amount,
         "phone" => $account,
         "reference" => $trackingID,
-        "callbackUrl" => "https://sanderson.xgramm.com/backend/mains/callbacks/palpluss_b2c_callback.php",
+        "callbackUrl" => callback_url('palpluss_b2c_callback.php'),
         "description" => "BusinessPayment"
     ];
-    $inititate = $api->request('https://api.palpluss.com/v1/b2c/payouts', 'POST', $data, $headers);
+    $inititate = $api->request(env('PALPLUSS_B2C_URL'), 'POST', $data, $headers);
 
   if ($inititate['success']) {
         $res = [
@@ -179,8 +179,8 @@ if (isset($data)) {
         // Get user details 
         $user_details = $query->select('users', '*', ['ID' => $userID]);
         
-        // check withdrawal pin
-        if($withdrawal_pin == $pin){
+        // check withdrawal pin (Phase 2.3 -- stored as a hash now)
+        if($withdrawal_pin !== '' && password_verify((string) $pin, $withdrawal_pin)){
             
              //check if user account balance is sufficient
         if($balance >= $amount){

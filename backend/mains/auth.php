@@ -30,13 +30,16 @@ if (isset($data)) {
                 // Check if the account exists
                 if ($count === 0) {
 
-                    // Insert into users tables
-                    $insert_users = $query->insert('users', ['email' => $email, 'passwrd' => $password, 'phone' => $phone, 'upline' => $upline, 'name' => $name, 'country' => $country]);
+                    // Insert into users tables.
+                    // The password is hashed here and never stored in the clear
+                    // (Phase 2.1); password_verify below is the only way back.
+                    $insert_users = $query->insert('users', ['email' => $email, 'passwrd' => password_hash($password, PASSWORD_DEFAULT), 'phone' => $phone, 'upline' => $upline, 'name' => $name, 'country' => $country]);
 
-                    // Sleep for 2 seconds then get userID which is used in both wallets insertion
-                    sleep(2);
-                    $user = $query->select('users', '*', ['phone' => $phone]);
-                    $userID = $user[0]['ID'];
+                    // insert() returns lastInsertId(), so the new ID is already
+                    // in hand. This used to sleep(2) and re-query by phone,
+                    // which cost every registration two seconds and would pick
+                    // the wrong row if two people ever shared a number.
+                    $userID = $insert_users;
                     $insert_wallet = $query->insert('wallets', ['userID' => $userID]);
                     $body = registration_template($name);
                     $email_res = send_email($email, 'Welcome To Sanderson Farm', $body);
@@ -86,24 +89,46 @@ if (isset($data)) {
             ];
         }
     }elseif ($type === 'login') {
-        $auth = $query->auth('users', $phone, $password);
+        // Authentication lives here rather than in QueryBuilder::auth(), which
+        // compared plaintext with == . That method is now unused by this
+        // project; see docs/AUTH.md for why the vendored copies differ.
+        $users = $query->select('users', '*', ['phone' => $phone]);
+        $user  = $users[0] ?? null;
 
-        if ($auth['Status'] == 'Success') {
+        // Hash an empty candidate when the account does not exist, so a missing
+        // phone number and a wrong password take the same time to answer and
+        // cannot be told apart by timing.
+        $storedHash = $user['passwrd'] ?? '$2y$10$usesomesillystringfoobar1234567890abcdefghijklmnopqrstuv';
+
+        if ($user !== null && password_verify($password, $storedHash)) {
+
+            // Opportunistically upgrade the stored digest if PHP's default
+            // cost or algorithm has moved on since it was written.
+            if (password_needs_rehash($storedHash, PASSWORD_DEFAULT)) {
+                $query->update('users', ['passwrd' => password_hash($password, PASSWORD_DEFAULT)], ['ID' => $user['ID']]);
+            }
 
             $response = [
-                'status' => $auth['Status'],
-                'message' => $auth['Message'],
-                'userID' => $auth['Data']['ID'],
+                'status' => 'Success',
+                'message' => 'Authentication Successful. Please wait for redirection',
+                'userID' => $user['ID'],
                 'error' => [],
             ];
         }else{
             $response = [
-                'status' => $auth['Status'],
-                'message' => $auth['Message'],
+                'status' => 'Failed',
+                'message' => 'Invalid Credentials',
                 'userID' => 0,
                 'error' => []
             ];
         }
+    }else{
+        $response = [
+            'status' => 'Failed',
+            'message' => 'Unknown authentication type',
+            'userID' => 0,
+            'error' => []
+        ];
     }
     $fileGetContent->send_content($response);
 }

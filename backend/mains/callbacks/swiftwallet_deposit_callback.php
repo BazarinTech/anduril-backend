@@ -1,6 +1,13 @@
 <?php
 //get initiator
 include 'initiate.php';
+include 'verify.php';
+
+// Not wired to any live payment flow, but still publicly reachable and still
+// talking to the same wallets table. Guarded on the same shared secret as the
+// Palpluss callbacks, which in practice means it now rejects everything until
+// a payout is actually routed through this provider.
+verify_callback_request('swiftwallet_deposit');
 include 'send-email.php';
 include '../transaction-sms.php';
 

@@ -12,18 +12,32 @@ if (isset($_POST['submit'])) {
     $email = $_POST['email'];
     $pass = $_POST['password'];
 
-    // Get user and check if the user exists and authenticate
-    $user = $query->select('users', '*', ['email' => $email, 'passwrd' => $pass]);
-    $user_count = count($user);
+    // Look the account up by email only, then verify the hash (Phase 2.1).
+    // The password can no longer be part of the WHERE clause, because the
+    // stored value is a digest rather than the string the user typed.
+    $user = $query->select('users', '*', ['email' => $email]);
+    $account = $user[0] ?? null;
 
-    if ($user_count > 0) {
-        $userID = $user[0]['ID'];
+    // Same constant-ish work whether or not the email exists, so a valid
+    // address cannot be distinguished from an invalid one by response time.
+    $storedHash = $account['passwrd'] ?? '$2y$10$usesomesillystringfoobar1234567890abcdefghijklmnopqrstuv';
+
+    if ($account !== null && password_verify($pass, $storedHash)) {
+        $userID = $account['ID'];
+
+        if (password_needs_rehash($storedHash, PASSWORD_DEFAULT)) {
+            $query->update('users', ['passwrd' => password_hash($pass, PASSWORD_DEFAULT)], ['ID' => $userID]);
+        }
 
         // Check if user is admin
         $admins = $query->select('admins', '*', ['userID' => $userID]);
         $num = count($admins);
 
         if ($num > 0) {
+            // Phase 2.6 -- issue a fresh session ID now that the privilege
+            // level has changed, so a session fixed before login is useless.
+            session_regenerate_id(true);
+
             $_SESSION['userID'] = $userID; // <-- DATABASE-BASED SESSION
             header('Location: dashboard');
             exit;

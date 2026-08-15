@@ -102,15 +102,15 @@ function sanitizeKenyanPhone($input){
 // Function to send sms using hostpinnacle
 function sendSMS($phoneNumber, $query, $curl, $type){
     
-    $apiUrl = "https://smsportal.hostpinnacle.co.ke/SMSApi/send";
+    $apiUrl = env('SMS_URL');
 
     // Credentials
-    $userid   = "bazarin";
-    $password = "xxxxx";
-    $apiKey   = "7ac3d0e4b136d662d74c267e6bfe6974";
+    $userid   = env('SMS_USERID');
+    $password = env('SMS_PASSWORD');
+    $apiKey   = env('SMS_API_KEY');
 
     // Sender ID
-    $senderID = "GROVER";
+    $senderID = env('SMS_SENDER_ID');
 
     // OTP message
     $sms_code = generateSMSCode($query);

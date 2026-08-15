@@ -50,11 +50,11 @@ if (isset($data['userID']) && isset($data['type'])) {
             $new_password = $data['newPassword'];
             $con_password = $data['confirmPassword'];
             $user = $query->select('users', '*', ['ID' => $userID]);
-            $password = $user[0]['passwrd'];
-            if ($old_password == $password) {
+            $password = $user[0]['passwrd'] ?? '';
+            if (password_verify($old_password, $password)) {
                 if ($new_password == $con_password) {
                     if (strlen($new_password) >= 6) {
-                        $update_password = $query->update('users', ['passwrd' => $new_password], ['ID' => $userID]);
+                        $update_password = $query->update('users', ['passwrd' => password_hash($new_password, PASSWORD_DEFAULT)], ['ID' => $userID]);
                         $response = [
                             'status' => 'Success',
                             'message' => 'Password updated succesfully!'
@@ -62,7 +62,7 @@ if (isset($data['userID']) && isset($data['type'])) {
                     }else{
                         $response = [
                             'status' => 'Failed',
-                            'message' => 'Password must be at least 8 characters long!'
+                            'message' => 'Password must be at least 6 characters long!'
                         ];
                     }
                 }else{

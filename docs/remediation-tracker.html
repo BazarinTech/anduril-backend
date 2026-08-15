@@ -1,0 +1,724 @@
+<title>Anduril Remediation Tracker</title>
+
+<style>
+  /* ---- Tokens: light is the base, defined on bare :root ---- */
+  :root {
+    --ground:    #F1F4F5;
+    --surface:   #FFFFFF;
+    --surface-2: #E8EDEF;
+    --ink:       #101A1C;
+    --muted:     #56676F;
+    --faint:     #7E8F97;
+    --rule:      #D5DEE1;
+    --accent:    #0D5C63;
+    --accent-sf: #E0EFEF;
+    --done:      #2C7A52;
+    --done-sf:   #DFEFE6;
+    --open:      #8A6A15;
+    --open-sf:   #F3EBD6;
+    --critical:  #A63A2C;
+    --crit-sf:   #F6E2DE;
+    --shadow:    0 1px 2px rgba(16,26,28,.05), 0 8px 24px -12px rgba(16,26,28,.14);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #0D1316;
+      --surface:   #151D21;
+      --surface-2: #1D272C;
+      --ink:       #E3EAEC;
+      --muted:     #93A4AB;
+      --faint:     #71858D;
+      --rule:      #263338;
+      --accent:    #57B9BE;
+      --accent-sf: #14312F;
+      --done:      #5CB98A;
+      --done-sf:   #14301F;
+      --open:      #D3AC45;
+      --open-sf:   #2F2712;
+      --critical:  #E28175;
+      --crit-sf:   #351A16;
+      --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:    #0D1316;
+    --surface:   #151D21;
+    --surface-2: #1D272C;
+    --ink:       #E3EAEC;
+    --muted:     #93A4AB;
+    --faint:     #71858D;
+    --rule:      #263338;
+    --accent:    #57B9BE;
+    --accent-sf: #14312F;
+    --done:      #5CB98A;
+    --done-sf:   #14301F;
+    --open:      #D3AC45;
+    --open-sf:   #2F2712;
+    --critical:  #E28175;
+    --crit-sf:   #351A16;
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+
+  /* ---- Base ---- */
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 20px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1000px; margin: 0 auto; }
+
+  h1, h2, h3 {
+    font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-weight: 600;
+    text-wrap: balance;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.84em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+
+  .eyebrow {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  /* ---- Masthead ---- */
+  header.masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 56px 0 32px;
+    border-bottom: 1px solid var(--rule);
+  }
+  header.masthead h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.12; }
+  header.masthead p.standfirst {
+    margin: 0;
+    max-width: 62ch;
+    color: var(--muted);
+    font-size: 17px;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    color: var(--faint);
+  }
+
+  /* ---- Progress summary ---- */
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 32px 0 8px;
+  }
+  .stat { background: var(--surface); padding: 16px 18px; display: flex; flex-direction: column; gap: 3px; }
+  .stat .n {
+    font-family: ui-serif, "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 27px;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .n.is-done { color: var(--done); }
+  .stat .l { font-size: 12px; color: var(--muted); }
+
+  .bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    overflow: hidden;
+    margin: 18px 0 44px;
+  }
+  .bar > span { display: block; height: 100%; width: 10%; background: var(--done); }
+
+  /* ---- Callout ---- */
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--open);
+    border-radius: 6px;
+    padding: 20px 22px;
+    margin: 0 0 48px;
+    box-shadow: var(--shadow);
+  }
+  .callout h2 { font-size: 18px; margin-bottom: 4px; }
+  .callout ol { margin: 12px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 9px; }
+  .callout li { color: var(--muted); }
+  .callout li strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- Phase ---- */
+  .phase { margin-bottom: 44px; }
+  .phase-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .phase-num {
+    font-family: ui-serif, "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 28px;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .phase-head h2 { font-size: 21px; flex: 1 1 auto; }
+  .phase-why { color: var(--muted); font-size: 15px; margin: 12px 0 16px; max-width: 68ch; }
+
+  /* ---- Items ---- */
+  .items { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .item {
+    background: var(--surface);
+    display: grid;
+    grid-template-columns: 46px 1fr auto;
+    gap: 4px 14px;
+    padding: 13px 16px;
+    align-items: baseline;
+  }
+  .item .id { color: var(--faint); }
+  .item .what { color: var(--ink); }
+  .item .where { grid-column: 2 / -1; color: var(--faint); margin-top: 2px; word-break: break-word; }
+  .item.is-done .what { color: var(--muted); }
+
+  /* ---- Chips ---- */
+  .chip {
+    display: inline-block;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 100px;
+    border: 1px solid transparent;
+  }
+  .chip.done  { background: var(--done-sf);   color: var(--done);     border-color: var(--done); }
+  .chip.next  { background: var(--accent-sf); color: var(--accent);   border-color: var(--accent); }
+  .chip.crit  { background: var(--crit-sf);   color: var(--critical); border-color: var(--critical); }
+  .chip.yours { background: var(--open-sf);   color: var(--open);     border-color: var(--open); }
+  .chip.queue { background: transparent;      color: var(--faint);    border-color: var(--rule); }
+
+  /* ---- Findings ---- */
+  details.finding {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  details.finding > summary {
+    cursor: pointer;
+    padding: 14px 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-weight: 550;
+    list-style: none;
+  }
+  details.finding > summary::-webkit-details-marker { display: none; }
+  details.finding > summary::after {
+    content: "+";
+    margin-left: auto;
+    color: var(--faint);
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  details.finding[open] > summary::after { content: "\2212"; }
+  .finding-body { padding: 0 16px 16px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 14px; }
+  .finding-body p { margin: 0 0 10px; max-width: 70ch; }
+  .finding-body p:last-child { margin-bottom: 0; }
+  .finding-body code {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.86em;
+    background: var(--surface-2);
+    padding: 1.5px 5px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  .scroll-x { overflow-x: auto; }
+  table.drift { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 14px; }
+  table.drift th, table.drift td { text-align: left; padding: 8px 14px 8px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  table.drift th { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+
+  footer.foot { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--rule); color: var(--faint); }
+
+  @media (max-width: 620px) {
+    .item { grid-template-columns: 42px 1fr; }
+    .item .chip { grid-column: 2; justify-self: start; margin-top: 6px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">anduril-backend &middot; sanderson.xgramm.com</div>
+    <h1>Anduril Remediation Tracker</h1>
+    <p class="standfirst">
+      Forty findings from the codebase review, sequenced into five phases so each one
+      builds on the last. Pre-launch, no users, no live money &mdash; so breaking changes
+      are cheap and nothing here is an emergency hotfix.
+    </p>
+    <div class="meta-row mono">
+      <span>Updated 15 Aug 2026</span>
+      <span>Stage: development</span>
+      <span>Phases 0&ndash;2 complete</span>
+    </div>
+  </header>
+
+  <div class="summary">
+    <div class="stat"><span class="n is-done">17</span><span class="l">Items closed</span></div>
+    <div class="stat"><span class="n">46</span><span class="l">Items total</span></div>
+    <div class="stat"><span class="n">3</span><span class="l">Phases complete</span></div>
+    <div class="stat"><span class="n">4</span><span class="l">Awaiting you</span></div>
+  </div>
+  <div class="bar"><span style="width:37%;"></span></div>
+
+  <div class="callout">
+    <div class="eyebrow">Blocked on you</div>
+    <h2>Three things I can't do from here</h2>
+    <ol>
+      <li>
+        <strong>Rotate every credential at its provider.</strong> Moving secrets out of the
+        source tree does not un-leak them &mdash; they are in git history. Rotate: the MySQL
+        password, the Palpluss <span class="mono">pp_live_</span> key, the SMTP mailbox
+        password, the HostPinnacle API key, and the dead PayHero / SwiftWallet / Umeskia keys
+        still sitting in commented-out blocks. <span class="mono">JWT_SECRET</span> and the
+        callback token are already rotated and have never been in git.
+      </li>
+      <li>
+        <strong>Run the credential migration on any database that predates Phase 2.</strong>
+        <span class="mono">php db/migrations/001_phase2_hashed_credentials.php</span>. Logins
+        compare against a hash now, so an unmigrated database locks everyone out &mdash;
+        including you. It is safe to re-run.
+      </li>
+      <li>
+        <strong>Create <span class="mono">config/env.php</span> on the server.</strong> It is
+        gitignored by design, so a deploy will not carry it. Copy
+        <span class="mono">config/env.example.php</span> and fill it in, or set real
+        environment variables &mdash; those take precedence over the file.
+      </li>
+      <li>
+        <strong>Decide the <span class="mono">vendor/</span> strategy.</strong> The two vendored
+        copies of your library have drifted apart (see below). Until that is resolved they must
+        stay in git, and <span class="mono">composer install</span> is unsafe to run.
+      </li>
+      <li>
+        <strong>Pin <span class="mono">CORS_ORIGIN</span> when the frontend domain is settled.</strong>
+        Held open by decision &mdash; the allowlist logic is already live, so this is a one-line
+        config edit with no code change. Until then any origin may call the API.
+      </li>
+    </ol>
+  </div>
+
+  <section aria-labelledby="found">
+    <div class="eyebrow">Surfaced during Phase 0</div>
+    <h2 id="found" style="font-size:21px; margin:4px 0 16px;">Two findings that changed the plan</h2>
+
+    <details class="finding" open>
+      <summary><span class="chip crit">Critical</span> The session cookie's name is the JWT signing secret</summary>
+      <div class="finding-body">
+        <p>
+          The frontend mints tokens in a Next.js route handler and sets the cookie as
+          <code>name: "susyr7q3ycugfWDFF"</code>. That string is the exact value of
+          <code>JWT_SECRET</code> on the PHP side. The HS256 signing key is therefore published
+          to every visitor as a cookie name &mdash; visible in DevTools, no exploitation needed.
+          Anyone can forge a token for any <code>userID</code>.
+        </p>
+        <p>
+          Good news buried in it: the secret is <em>not</em> in the browser bundle, and the BFF
+          split is otherwise sound. Fixing it is a rename plus a rotation across both repos.
+          Promoted to the front of Phase 2 as item 2.0.
+        </p>
+      </div>
+    </details>
+
+    <details class="finding">
+      <summary><span class="chip crit">Trap</span> Your two vendor trees are different code under the same version</summary>
+      <div class="finding-body">
+        <p>
+          <code>admin/vendor/</code> and <code>backend/vendor/</code> both ship
+          <code>bazarin/bazarin-php-library</code> tagged <strong>v1.1.0</strong>, but the
+          backend copy was hand-edited in place and the version was never bumped.
+        </p>
+        <div class="scroll-x">
+          <table class="drift">
+            <thead>
+              <tr><th></th><th>admin/vendor</th><th>backend/vendor</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>selectOR()</code></td><td>absent</td><td>present</td></tr>
+              <tr><td><code>auth()</code> looks up</td><td>username</td><td>phone</td></tr>
+              <tr><td><code>auth()</code> compares</td><td><code>password_verify()</code></td><td><code>==</code> on plaintext</td></tr>
+              <tr><td><code>firebase/php-jwt</code></td><td>absent</td><td>present</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:12px;">
+          Running <code>composer install</code> in <code>backend/</code> would silently revert the
+          patches and fatal both <code>auth.php</code> and <code>transfer.php</code>. Each context
+          now loads its own tree explicitly. The irony: the admin copy is the better one &mdash;
+          it already uses <code>password_verify</code>, but <code>admin/login.php</code> never
+          calls it.
+        </p>
+      </div>
+    </details>
+  </section>
+
+  <div style="height:48px;"></div>
+
+  <!-- PHASE 0 -->
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">0</span>
+      <h2>Unblock and clean the foundation</h2>
+      <span class="chip done">Complete</span>
+    </div>
+    <p class="phase-why">
+      Everything downstream depended on knowing who mints the JWT, and on there being one
+      place to change configuration instead of four.
+    </p>
+    <div class="items">
+      <div class="item is-done">
+        <span class="id mono">0.1</span>
+        <span class="what">Settle the JWT issuance model &mdash; answered: the frontend BFF signs, PHP only verifies</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">docs/AUTH.md</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">0.2</span>
+        <span class="what">Lift every secret out of source into <span class="mono">config/env.php</span>, overridable by real env vars</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">config/ &middot; 8 call sites across deposit, withdraw, send-email &times;3, sms &times;2, approve-withdrawals</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">0.3</span>
+        <span class="what">Collapse four duplicated <span class="mono">initiate.php</span> files into one bootstrap; keep them as shims so no caller changed</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bootstrap/bootstrap.php &middot; bootstrap/api.php &middot; bootstrap/admin.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">0.4</span>
+        <span class="what">Add <span class="mono">.gitignore</span>; untrack 26&nbsp;MB of error logs and <span class="mono">vendor.zip</span></span>
+        <span class="chip done">Done</span>
+        <span class="where mono">.gitignore &middot; staged, not committed</span>
+      </div>
+    </div>
+    <p class="phase-why" style="margin-top:16px;">
+      Also folded in: error display is now config-driven rather than set per-directory in
+      <span class="mono">.htaccess</span> (which never covered <span class="mono">backend/</span> at all),
+      the admin session cookie gained <span class="mono">httponly</span> and <span class="mono">samesite</span>,
+      and the <span class="mono">DbSessionHandler</span> deprecation notices that dominated
+      84,000 lines of <span class="mono">admin/error_log</span> are silenced.
+      All 58 project files lint clean; both contexts boot and load their correct vendor tree.
+    </p>
+  </section>
+
+  <!-- PHASE 1 -->
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">1</span>
+      <h2>Close what's open to the anonymous internet</h2>
+      <span class="chip done">Complete</span>
+    </div>
+    <p class="phase-why">
+      Four holes that took no credentials at all to exploit. All closed. 1.5 is held open by
+      decision rather than left undone &mdash; the mechanism is built and waiting on a domain.
+    </p>
+    <div class="items">
+      <div class="item is-done">
+        <span class="id mono">1.1</span>
+        <span class="what">Session + <span class="mono">edit</span> permission enforced on all nine admin action endpoints, at their one shared include</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bootstrap/admin.php &rarr; require_admin_json() &middot; admin/actions/initiate.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">1.2</span>
+        <span class="what">Delete target restricted to the seven tables the panel actually offers a delete control for</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/actions/delete_record.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">1.3</span>
+        <span class="what">Admin creation now requires a signed-in admin holding <span class="mono">add</span></span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/register.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">1.4</span>
+        <span class="what">All seven callbacks authenticated by a per-transaction shared secret, with an amount cross-check and replay guard on the live two</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">backend/mains/callbacks/verify.php &middot; bootstrap &rarr; callback_url()</span>
+      </div>
+      <div class="item">
+        <span class="id mono">1.5</span>
+        <span class="what">Allowlist logic live in the bootstrap; the origin value is held open until the frontend domain is settled</span>
+        <span class="chip yours">Your call</span>
+        <span class="where mono">config/env.php &rarr; CORS_ORIGIN</span>
+      </div>
+    </div>
+    <p class="phase-why" style="margin-top:16px;">
+      Also folded in: the eight <span class="mono">update_*</span> endpoints built an
+      &ldquo;Invalid field&rdquo; response and then <span class="mono">exit</span>ed without ever
+      sending it, so a rejected edit returned an empty body &mdash; they now answer with 400 and
+      the message. The deposit and payout callbacks no longer read
+      <span class="mono">$transactions[0]</span> before checking it exists, which is what produced
+      the recurring warnings and the <span class="mono">userID cannot be null</span> fatal in
+      <span class="mono">callbacks/error_log</span>.
+    </p>
+  </section>
+
+  <!-- PHASE 2 -->
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">2</span>
+      <h2>Identity and credentials</h2>
+      <span class="chip done">Complete</span>
+    </div>
+    <p class="phase-why">
+      Every credential in the system is now a one-way hash, and the leaked signing key is
+      dead. One item is deliberately left undone rather than half-done, and one new finding
+      came out of the verification work &mdash; both below.
+    </p>
+    <div class="items">
+      <div class="item is-done">
+        <span class="id mono">2.0</span>
+        <span class="what">Cookie renamed off the secret, <span class="mono">JWT_SECRET</span> rotated, seven-day expiry added &mdash; tokens signed with the old key are now rejected</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">anduril-market: lib/session.ts, route.ts, logout, middleware &middot; anduril-backend: config/env.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">2.1</span>
+        <span class="what">Passwords hashed everywhere, with rehash-on-login and constant-time failure so a valid email cannot be spotted by timing</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">auth.php &middot; account.php &middot; admin/login.php &middot; admin/register.php &middot; admin/profile.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">2.2</span>
+        <span class="what">Password column removed from the admin users table and from the data behind it</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/includes/main.php &middot; admin/users.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">2.3</span>
+        <span class="what">PIN hashed; <span class="mono">create</span> refuses an existing account; changing the PIN requires the current one</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">withdraw-account.php &middot; withdraw.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">2.4</span>
+        <span class="what">Codes expire against their own window and are single-use; lifecycle is Pending &rarr; Verified &rarr; Used</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">verification.php &middot; code-helpers.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">2.5</span>
+        <span class="what">Reset requires an unexpired, unconsumed code and burns it; code requests throttled to 3 per 15 minutes per number</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">forgot-password.php &middot; verification.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">2.6</span>
+        <span class="what">Session ID regenerated at the moment privilege changes</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">admin/login.php</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">2.7</span>
+        <span class="what">Middleware now enforces expiry and clears stale cookies; documented as routing convenience, not an authorization boundary</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">anduril-market: middleware.ts</span>
+      </div>
+      <div class="item">
+        <span class="id mono">2.8</span>
+        <span class="what">Make the session cookie <span class="mono">httpOnly</span> &mdash; needs API calls proxied through route handlers first, since client code reads the token today</span>
+        <span class="chip queue">Deferred</span>
+        <span class="where mono">anduril-market: use-main-store.ts, lib/backend/actions.ts</span>
+      </div>
+    </div>
+    <p class="phase-why" style="margin-top:16px;">
+      <strong>2.8 is the one item deliberately not done.</strong>
+      <span class="mono">use-main-store.ts</span> reads the cookie from client code and passes the
+      token to the PHP API on every call, so turning on <span class="mono">httpOnly</span> today
+      would simply break the app. Doing it properly means routing those calls through Next
+      handlers &mdash; a change of shape, not a flag flip, so it is tracked rather than improvised.
+    </p>
+  </section>
+
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">&#9679;</span>
+      <h2>The clocks did not agree</h2>
+      <span class="chip done">Fixed</span>
+    </div>
+    <p class="phase-why">
+      Found while testing 2.4, and much larger than the item that exposed it. PHP ran in UTC
+      while MySQL ran in EAT, so <span class="mono">strtotime()</span> on any column read back
+      from the database landed three hours in the future and every age calculation came out
+      <em>negative</em>. Nothing time-based had ever expired.
+    </p>
+    <div class="items">
+      <div class="item is-done">
+        <span class="id mono">tz</span>
+        <span class="what">PHP and the MySQL session pinned to one configured zone &mdash; which also restored coupon expiry, the deposit throttle, and &ldquo;users joined today&rdquo;, none of which had ever worked</span>
+        <span class="chip done">Done</span>
+        <span class="where mono">bootstrap/bootstrap.php &middot; config &rarr; APP_TIMEZONE</span>
+      </div>
+      <div class="item">
+        <span class="id mono">4.14</span>
+        <span class="what">Remove the <span class="mono">$hours_neg = 3 * 60 * 60</span> hand-correction in the investment countdown &mdash; it was compensating for this skew and now over-corrects by three hours</span>
+        <span class="chip queue">Open</span>
+        <span class="where mono">backend/mains/mains.php:187</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- PHASE 3 -->
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">3</span>
+      <h2>Money integrity</h2>
+      <span class="chip queue">Queued</span>
+    </div>
+    <p class="phase-why">
+      Every balance change is currently a read-modify-write with no lock. There is no point
+      hardening the arithmetic until identity (Phase 2) is trustworthy.
+    </p>
+    <div class="items">
+      <div class="item"><span class="id mono">3.1</span><span class="what">Add transaction passthroughs to the query builder &mdash; prerequisite for 3.2</span><span class="chip queue">Open</span><span class="where mono">bazarin-php-library QueryBuilder</span></div>
+      <div class="item"><span class="id mono">3.2</span><span class="what">Wrap every balance mutation in a transaction with <span class="mono">SELECT &hellip; FOR UPDATE</span></span><span class="chip queue">Open</span><span class="where mono">withdraw, transfer, invest, returns, bonus, coupon</span></div>
+      <div class="item"><span class="id mono">3.3</span><span class="what">Remove the always-truthy <span class="mono">if&nbsp;($initiate)</span> that masks payout failures and always reports success</span><span class="chip queue">Open</span><span class="where mono">backend/mains/withdraw.php:227</span></div>
+      <div class="item"><span class="id mono">3.4</span><span class="what">Refund on payout failure; stop debiting before the B2C call succeeds</span><span class="chip queue">Open</span><span class="where mono">backend/mains/withdraw.php:190</span></div>
+      <div class="item"><span class="id mono">3.5</span><span class="what">Make the daily claim idempotent &mdash; the <span class="mono">rolls</span> check-then-set gap is the easiest race to hit</span><span class="chip queue">Open</span><span class="where mono">backend/mains/returns.php:39-67</span></div>
+      <div class="item"><span class="id mono">3.6</span><span class="what">Validate that amounts are numeric and positive before they reach the wallet</span><span class="chip queue">Open</span><span class="where mono">deposit.php:72 &middot; invest.php &middot; transfer.php</span></div>
+    </div>
+  </section>
+
+  <!-- PHASE 4 -->
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">4</span>
+      <h2>Correctness bugs</h2>
+      <span class="chip queue">Queued</span>
+    </div>
+    <p class="phase-why">
+      Independent of each other and parallelizable. Not dangerous once Phase 3 lands &mdash;
+      just wrong. 4.3 and 4.4 are the same edit.
+    </p>
+    <div class="items">
+      <div class="item"><span class="id mono">4.1</span><span class="what">Level 2 and 3 referral deposits always render as zero &mdash; the sum loop was never written</span><span class="chip queue">Open</span><span class="where mono">backend/mains/mains.php:129, :154</span></div>
+      <div class="item"><span class="id mono">4.2</span><span class="what">Bonus progress counts three levels but the claim counts only direct referrals &mdash; users see 100% and get &ldquo;Failed&rdquo;</span><span class="chip queue">Open</span><span class="where mono">mains.php:227 vs bonus.php:37</span></div>
+      <div class="item"><span class="id mono">4.3</span><span class="what">Consolidate the two commission functions &mdash; manual approval pays 2 levels, the callback pays 3</span><span class="chip queue">Open</span><span class="where mono">approve-deposits.php:10 &middot; palpluss_deposit_callback.php:8</span></div>
+      <div class="item"><span class="id mono">4.4</span><span class="what">Commission algorithm fatals for users with no upline (confirmed in the error log)</span><span class="chip queue">Open</span><span class="where mono">same two files</span></div>
+      <div class="item"><span class="id mono">4.5</span><span class="what">Guard the last-deposit lookup for first-time depositors</span><span class="chip queue">Open</span><span class="where mono">backend/mains/deposit.php:83</span></div>
+      <div class="item"><span class="id mono">4.6</span><span class="what">Transaction description claims capital was returned; only the flat daily return is paid</span><span class="chip queue">Open</span><span class="where mono">backend/mains/returns.php:74</span></div>
+      <div class="item"><span class="id mono">4.7</span><span class="what">Investment never checks that the product is Active</span><span class="chip queue">Open</span><span class="where mono">backend/mains/invest.php:47</span></div>
+      <div class="item"><span class="id mono">4.8</span><span class="what">Account update reads <span class="mono">email</span> and never uses it; reports failure on a zero-row update</span><span class="chip queue">Open</span><span class="where mono">backend/mains/account.php:26</span></div>
+      <div class="item"><span class="id mono">4.9</span><span class="what">Undefined response when a bonus reward type isn't money</span><span class="chip queue">Open</span><span class="where mono">backend/mains/bonus.php:38</span></div>
+      <div class="item"><span class="id mono">4.10</span><span class="what">Variable-name typo in the orders array; null dereference for deleted users</span><span class="chip queue">Open</span><span class="where mono">admin/includes/main.php:143, :201</span></div>
+      <div class="item"><span class="id mono">4.11</span><span class="what">Edit whitelists name columns that do not exist &mdash; <span class="mono">total_income</span>, <span class="mono">bonus_income</span> and <span class="mono">rolls</span> are not on wallets, <span class="mono">date_joined</span> is not on users</span><span class="chip crit">Confirmed</span><span class="where mono">actions/update_wallets.php:10 &middot; actions/update_user.php:10</span></div>
+      <div class="item"><span class="id mono">4.12</span><span class="what">Production <span class="mono">transactions.type</span> is varchar(10) but the daily claim writes <span class="mono">'Product Income'</span> (14) &mdash; under strict mode those rows are being rejected outright</span><span class="chip crit">Confirmed</span><span class="where mono">backend/mains/returns.php:69 &middot; schema</span></div>
+      <div class="item"><span class="id mono">4.13</span><span class="what">Manual reward inserts the string <span class="mono">'REWARD'</span> into <span class="mono">orders.prodID</span>, an INT column</span><span class="chip crit">Confirmed</span><span class="where mono">admin/user-reward.php:19</span></div>
+    </div>
+    <p class="phase-why" style="margin-top:16px;">
+      4.11 to 4.13 were found by building the local database and running the code against it.
+      All three are schema-versus-code mismatches that fail silently or loudly on the server
+      but were invisible from reading alone &mdash; 4.11 is already visible in
+      <span class="mono">admin/actions/error_log</span> as
+      <span class="mono">Unknown column 'total_income'</span>. 4.4 now reproduces on demand:
+      a deposit from a user whose upline has no upline still raises warnings inside the
+      commission walk.
+    </p>
+  </section>
+
+  <!-- PHASE 5 -->
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">5</span>
+      <h2>Structure, performance, operations</h2>
+      <span class="chip queue">Queued</span>
+    </div>
+    <p class="phase-why">
+      Only depends on the Phase 0 bootstrap, so 5.1 and 5.7 can start at any time. Safe to
+      defer; expensive to defer forever.
+    </p>
+    <div class="items">
+      <div class="item"><span class="id mono">5.1</span><span class="what">Kill the N+1 query explosion &mdash; a user with 50 referrals costs thousands of queries per dashboard load</span><span class="chip queue">Open</span><span class="where mono">backend/mains/mains.php:96-173</span></div>
+      <div class="item"><span class="id mono">5.2</span><span class="what">Fork and version the library properly so <span class="mono">vendor/</span> can leave git</span><span class="chip yours">Needs a call</span><span class="where mono">admin/vendor &middot; backend/vendor</span></div>
+      <div class="item"><span class="id mono">5.3</span><span class="what">Dedupe the three divergent copies of send-email, email-templates and transaction-sms</span><span class="chip queue">Open</span><span class="where mono">backend/mains &middot; callbacks &middot; admin/includes</span></div>
+      <div class="item"><span class="id mono">5.4</span><span class="what">Move the daily roll reset from a human clicking a button to a real cron</span><span class="chip queue">Open</span><span class="where mono">admin/admin-roll.php:6</span></div>
+      <div class="item"><span class="id mono">5.5</span><span class="what">Supply a working SMS password and rebrand the sender ID off <span class="mono">GROVER</span></span><span class="chip yours">Needs a call</span><span class="where mono">config/env.php &rarr; SMS_PASSWORD, SMS_SENDER_ID</span></div>
+      <div class="item"><span class="id mono">5.6</span><span class="what">Validate table and column identifiers instead of interpolating them; stop leaking exception messages to clients</span><span class="chip queue">Open</span><span class="where mono">QueryBuilder:16, :52, :126 &middot; incentive-application.php:73</span></div>
+      <div class="item"><span class="id mono">5.7</span><span class="what">Schema is now written down and runnable; the README is still outstanding</span><span class="chip next">Part done</span><span class="where mono">db/schema.sql &middot; db/seed.sql</span></div>
+    </div>
+  </section>
+
+  <section class="phase">
+    <div class="phase-head">
+      <span class="phase-num">&#9679;</span>
+      <h2>Local development database</h2>
+      <span class="chip done">Ready</span>
+    </div>
+    <p class="phase-why">
+      Reconstructed from the queries in this codebase, using the deployed sibling database
+      as the structural baseline and reconciled against every column the code reads or writes.
+      Money stays in VARCHAR columns and <span class="mono">orders.prodID</span> stays INT,
+      deliberately &mdash; local should fail the same way production does, not quietly better.
+    </p>
+    <div class="items">
+      <div class="item is-done">
+        <span class="id mono">db</span>
+        <span class="what">13 tables, seeded with settings, five products, a three-level referral tree and an admin account</span>
+        <span class="chip done">Applied</span>
+        <span class="where mono">mysql -u root -p &lt; db/schema.sql &amp;&amp; mysql -u root -p &lt; db/seed.sql</span>
+      </div>
+      <div class="item is-done">
+        <span class="id mono">&nbsp;</span>
+        <span class="what">Phases 0 and 1 verified end to end against it &mdash; forged callbacks, replay, amount inflation, unauthenticated admin writes, and all twelve admin pages rendering warning-free</span>
+        <span class="chip done">Verified</span>
+        <span class="where mono">config/env.php now points at the local database</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div class="eyebrow">Dependency order</div>
+    <p style="margin:10px 0 0; max-width:70ch; color:var(--muted);">
+      0 &rarr; 1 &rarr; 2 &rarr; 3 &rarr; 4, with Phase 5 branching off Phase 0 and runnable in
+      parallel. Nothing is committed yet &mdash; the Phase 0 changes sit in the working tree and
+      the untracked logs are staged but not removed from history.
+    </p>
+  </footer>
+
+</div>

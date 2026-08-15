@@ -181,7 +181,6 @@ if ($usersJson === false) {
                                             <th>Status</th>
                                             <th>Upline</th>
                                             <th>Date Joined</th>
-                                            <th>Password</th>
                                             <th>Action</th>
                                         </tr>
                                     </thead>
@@ -253,13 +252,11 @@ if ($usersJson === false) {
                                                     " x-show="!item.editing"></span>
                                                     <input type="text" class="form-input" x-ref="date" x-model="item.date" x-on:keydown.enter="item.editing = false" x-show="item.editing">
                                                 </td>
-                                                <td>
-                                                    <span x-text="item.password" x-on:dblclick="
-                                                        item.editing = <?= $isEdit ?>;
-                                                        $nextTick(() => $refs.password.focus());
-                                                    " x-show="!item.editing"></span>
-                                                    <input type="text" class="form-input" x-ref="password" x-model="item.password" x-on:keydown.enter="item.editing = false" x-show="item.editing">
-                                                </td>
+                                                <?php /* Phase 2.2 -- the password column is gone. Passwords are
+                                                         now one-way hashes, so there is nothing readable to show,
+                                                         and shipping the digest to the browser would only hand an
+                                                         attacker something to crack offline. Resetting a user's
+                                                         password is a reset flow, not an inline edit. */ ?>
                                                 <td>
                                                     <button class="text-danger <?= $isEdit ? '' : 'hidden' ?> ltr:ml-2 rtl:mr-2" x-on:click="showElement = false; deleteItem('users', item.id);">
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="inline-block w-5 h-5">

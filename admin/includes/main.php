@@ -109,7 +109,10 @@ foreach ($users as $row) {
         'status' => $row['status'],
         'upline' => $upline_email,
         'date' => $row['date_created'],
-        'password' => $row['passwrd'],
+        // Phase 2.2 -- 'password' => $row['passwrd'] used to be here, which put
+        // every user's credential into the admin page's HTML. Removed; the
+        // stored value is a one-way hash now and still has no business
+        // leaving the server.
         'roles' => $row['role']
     ];
 }

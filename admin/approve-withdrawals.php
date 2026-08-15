@@ -40,18 +40,18 @@ $isEdit = false;
 //  payment method auto mpesa function for swiftwallet
 function mpesa_auto($query, $curl, $phone, $amount, $trackingID){
     $headers = [
-        'Authorization: Basic pp_live_537b508caed8ce9e4a39d3f38d975b039b1df6ac355f3851'
+        'Authorization: Basic ' . env('PALPLUSS_KEY')
     ];
     $data = [
         "amount" => (float) $amount,
         "phone" => $phone,
         "reference" => $trackingID,
-        "callbackUrl" => "https://sanderson.xgramm.com/backend/mains/callbacks/palpluss_b2c_callback.php",
+        "callbackUrl" => callback_url('palpluss_b2c_callback.php'),
         "description" => "BusinessPayment"
     ];
-    
-    
-    $inititate = $curl->request('https://api.palpluss.com/v1/b2c/payouts', 'POST', $data, $headers);
+
+
+    $inititate = $curl->request(env('PALPLUSS_B2C_URL'), 'POST', $data, $headers);
     
 
     if (!empty($inititate['success']) && $inititate['success'] === true) {

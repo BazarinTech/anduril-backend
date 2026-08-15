@@ -1,0 +1,12 @@
+# The bootstrap files are includes, never entry points. Requesting one
+# directly either exits with a 500 (bootstrap.php) or boots a request with no
+# handler attached. Deny outright so neither is reachable.
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

@@ -1,0 +1,40 @@
+# -- Secrets -----------------------------------------------------------------
+config/env.php
+.env
+.env.*
+
+# -- Runtime noise -----------------------------------------------------------
+# cPanel drops these next to whichever script errored. 120k lines of them were
+# previously tracked.
+error_log
+**/error_log
+php_errorlog
+
+# -- Build / packaging artefacts ---------------------------------------------
+vendor.zip
+*.zip
+
+# -- Uploads -----------------------------------------------------------------
+# Product images are user-generated at runtime, not source. The eight webp
+# files currently tracked are seed data and stay; anything new is ignored.
+admin/uploads/*
+!admin/uploads/*.webp
+
+# -- Editor / OS -------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# -- NOTE ON vendor/ ---------------------------------------------------------
+# admin/vendor/ and backend/vendor/ are deliberately NOT ignored.
+#
+# Both trees claim bazarin-php-library v1.1.0 but differ: backend/vendor has a
+# hand-patched QueryBuilder (selectOR(), plaintext auth()) that the published
+# v1.1.0 does not. Running `composer install` would overwrite those patches and
+# fatal every endpoint that calls selectOR().
+#
+# Until the library is forked and versioned properly, the deployed vendor trees
+# are the only source of truth and must stay in git. Tracked as Phase 5.

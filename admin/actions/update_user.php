@@ -8,8 +8,9 @@ $value = $data['value'];
 
 // Sanitize field names to prevent SQL injection
 $allowedFields = ["name", "email", "phone", "status", "upline", "date_joined", "role"];
-if (!in_array($field, $allowedFields)) {
-    $response =["success" => false, "message" => "Invalid field"];
+if (!in_array($field, $allowedFields, true)) {
+    http_response_code(400);
+    $fileGetContent->send_content(["success" => false, "message" => "Invalid field"]);
     exit;
 }
 

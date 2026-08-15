@@ -13,10 +13,15 @@ if (isset($_POST['update-password'])) {
     $old_pass= $_POST['old-pass'];
     $new_pass = $_POST['new-pass'];
     $con_pass = $_POST['con-pass'];
-    if ($old_pass == $admin_pass) {
+    // Phase 2.1/2.2. Two things were wrong here: the comparison was plaintext,
+    // and the new password was written to `admins.passwrd` while the old one
+    // was read from `users.passwrd`. Since admin/login.php authenticates
+    // against `users`, changing your admin password had no effect at all.
+    // `admins.passwrd` is vestigial -- nothing authenticates against it.
+    if (password_verify($old_pass, $admin_pass)) {
         if ($new_pass == $con_pass) {
             if (strlen($new_pass) > 7) {
-                $query->update('admins', ['passwrd' => $new_pass], ['ID' => $adminID]);
+                $query->update('users', ['passwrd' => password_hash($new_pass, PASSWORD_DEFAULT)], ['ID' => $adminID]);
                 $msg = 'Password updated successfully!';
             }else{
                 $error = 'Password must be at least 8 characters long';

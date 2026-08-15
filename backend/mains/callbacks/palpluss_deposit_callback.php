@@ -1,8 +1,13 @@
 <?php
 //get initiator
 include 'initiate.php';
+include 'verify.php';
 include 'send-email.php';
 include '../transaction-sms.php';
+
+// Reject anything that cannot prove it came from the payment provider.
+// Runs before any parsing so a forged body never reaches the wallet logic.
+verify_callback_request('palpluss_deposit');
 
 //function for income algorithm
 function refferal_algo($query, $userID, $amount){
@@ -92,16 +97,50 @@ $data = $fileGetContent->get_content();
     // $status = $data['status'];
     // $account = $data['result']['Phone'];
     
-    $trackingID = $data['transaction']['external_reference'];
-    $reference = $data['transaction']['mpesa_receipt'];
-    $status = $data['transaction']['status'];
-    $account = $data['transaction']['phone_number'];
-    
+    $trackingID = $data['transaction']['external_reference'] ?? '';
+    $reference = $data['transaction']['mpesa_receipt'] ?? '';
+    $status = $data['transaction']['status'] ?? '';
+    $account = $data['transaction']['phone_number'] ?? '';
+
+    if ($trackingID === '') {
+        error_log('[palpluss_deposit] rejected: callback carried no external_reference');
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Missing reference']);
+        exit;
+    }
+
     //get transaction details
     $transactions = $query->select('transactions', '*', ['trackingID' => $trackingID, 'status' => "Pending"]);
+
+    // A replayed or unknown reference matches nothing. Acknowledge it so the
+    // provider stops retrying, but do not touch a wallet. This also removes
+    // the "Undefined array key 0" warnings that filled the error log, because
+    // $transactions[0] was being read before its existence was checked.
+    if (empty($transactions)) {
+        error_log("[palpluss_deposit] no pending transaction for {$trackingID}; ignoring");
+        echo json_encode(['status' => 'ok', 'message' => 'No pending transaction']);
+        exit;
+    }
+
     $transaction = $transactions[0];
 
-    
+    // Cross-check what the provider says was paid against what we are about to
+    // credit. The token check above is the primary control; this catches a
+    // leaked token being used to inflate an otherwise legitimate deposit.
+    $reportedAmount = callback_reported_amount($data);
+
+    if (callback_amount_mismatch($reportedAmount, $transaction['amount'], 'palpluss_deposit')) {
+        $query->update(
+            'transactions',
+            ['status' => 'Failed', 'description' => 'Amount mismatch on callback'],
+            ['trackingID' => $trackingID]
+        );
+
+        http_response_code(409);
+        echo json_encode(['status' => 'error', 'message' => 'Amount mismatch']);
+        exit;
+    }
+
     if ($status == 'SUCCESS') {
         $status = "Success";
         

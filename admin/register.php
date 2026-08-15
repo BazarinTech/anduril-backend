@@ -1,5 +1,28 @@
-<?php 
+<?php
 include 'includes/initiate.php';
+
+/**
+ * Phase 1.3 -- this page was reachable by anyone.
+ *
+ * It looks up an `admins` row by username and overwrites that row's name,
+ * email and password. Knowing (or guessing) an admin username was enough to
+ * rewrite that administrator's record. It does not by itself grant a login,
+ * because login authenticates against `users` rather than `admins`, but it is
+ * an unauthenticated write to the admin table either way.
+ *
+ * Creating administrators is now something an existing administrator does
+ * from inside the panel. If you want the original flow back -- emailing
+ * someone a link so they can set their own password -- that needs a
+ * single-use invite token stored on the admins row, which is a feature rather
+ * than a fix, so it is deliberately not improvised here.
+ */
+require_admin_page($query);
+
+if (!admin_can($query, 'add')) {
+    http_response_code(403);
+    exit('Your admin account does not have the \'add\' permission.');
+}
+
 $error = '';
 $msg = '';
 if (isset($_POST['submit'])) {
@@ -15,7 +38,7 @@ if (isset($_POST['submit'])) {
     if ($num > 0) {
         if ($con_pass === $pass) {
           if (strlen($pass) > 7) {
-            $update_admin = $query->update('admins', ['name' => $name, 'email' => $email, 'passwrd' => $pass], ['username' => $uname]);
+            $update_admin = $query->update('admins', ['name' => $name, 'email' => $email, 'passwrd' => password_hash($pass, PASSWORD_DEFAULT)], ['username' => $uname]);
             header('Location: login');
           }else{
             $error = "Password must be at least 8 characters long.";
