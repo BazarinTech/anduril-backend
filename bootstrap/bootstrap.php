@@ -87,7 +87,13 @@ if (!function_exists('env_required')) {
         $value = env($key);
 
         if ($value === null || $value === '') {
-            error_log("Configuration error: {$key} is not set. Did you copy config/env.example.php to config/env.php?");
+            // Two ways to supply it, and the advice differs by environment:
+            // on a container host there is no config file to copy.
+            error_log(
+                "Configuration error: {$key} is not set. Set it as an environment "
+                . "variable (Railway: service > Variables), or add it to config/env.php "
+                . "(copy config/env.example.php)."
+            );
             http_response_code(500);
             exit('Server configuration error.');
         }
@@ -146,6 +152,11 @@ $db = new Connection([
     'user'     => env_required('DB_USER'),
     'password' => env_required('DB_PASS'),
     'database' => env_required('DB_NAME'),
+    // Optional. Left unset it means 3306, which is what a database on the same
+    // private network answers on. Managed databases reached through a proxy
+    // do not, and the resulting failure never mentions the port.
+    'port'     => env('DB_PORT', ''),
+    'charset'  => env('DB_CHARSET', 'utf8mb4'),
 ]);
 
 $db->getConnection()->exec(

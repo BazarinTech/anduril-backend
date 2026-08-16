@@ -135,9 +135,31 @@ exits 0. If the crontab still calls it, that is harmless — but the entry can g
 crontab -e   # delete the daily-reset.php line
 ```
 
-**Deploying.** `config/env.php` is gitignored, so it must exist on the server
-before the code does. `CALLBACK_TOKEN` fails closed — an unset one rejects
-every payment callback.
+**Deploying.** Configuration comes from real environment variables first and
+`config/env.php` second, so a container host needs no config file at all —
+`config/env.php` stays gitignored and local-only. On a traditional host where
+you cannot set env vars, create `config/env.php` from the example before the
+code goes up.
+
+Generate the variable list from your local config:
+
+```bash
+php bin/railway-env.php            # names + guidance, secrets redacted
+php bin/railway-env.php --values   # real values, ready to paste
+```
+
+Five keys hard-fail at boot if unset: `DB_HOST`, `DB_NAME`, `DB_USER`,
+`DB_PASS`, `JWT_SECRET`. `CALLBACK_TOKEN` fails closed — an unset one rejects
+every payment callback rather than accepting forged ones.
+
+Three that carry local values and must be changed: `APP_URL`,
+`CALLBACK_BASE_URL` (the provider posts here — point it at the deployed
+backend) and `CORS_ORIGIN` (still `*`).
+
+`DB_PORT` is optional and defaults to 3306, which is what a database on the
+same private network answers on. A managed database reached through a proxy
+does not — set it. Note that with `DB_HOST=localhost` MySQL connects over a
+unix socket and ignores the port entirely; use `127.0.0.1` to force TCP.
 
 **Product images** go to S3-compatible object storage (a Railway Bucket) when
 one is configured, and to `admin/uploads/` on disk otherwise — see

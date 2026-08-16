@@ -29,6 +29,11 @@ return [
     'CORS_ORIGIN' => '*',
 
     // -- Database ---------------------------------------------------------
+    // Optional. Unset means 3306. A managed database reached through a proxy
+    // will not be on 3306, and the failure never mentions the port.
+    // With DB_HOST=localhost MySQL uses a unix socket and ignores this
+    // entirely; use 127.0.0.1 to force TCP.
+    'DB_PORT' => '',
     'DB_HOST' => 'localhost',
     'DB_NAME' => '',
     'DB_USER' => '',
