@@ -139,6 +139,29 @@ crontab -e   # delete the daily-reset.php line
 before the code does. `CALLBACK_TOKEN` fails closed — an unset one rejects
 every payment callback.
 
+**Product images** go to S3-compatible object storage (a Railway Bucket) when
+one is configured, and to `admin/uploads/` on disk otherwise — see
+`lib/storage.php`. Disk is fine for development and wrong on a container host,
+where the filesystem is discarded on every deploy.
+
+Set `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `S3_BUCKET`
+from the bucket's Credentials tab; all four are required together, and a
+partly-filled set is treated as unconfigured rather than half-working. Then
+copy the images that already exist across:
+
+```bash
+php bin/migrate-images-to-bucket.php           # report only
+php bin/migrate-images-to-bucket.php --apply   # upload
+```
+
+It copies rather than moves, and skips anything already in the bucket, so it is
+safe to re-run and safe to reverse. The admin Products page shows which driver
+is live and warns when uploads would be lost.
+
+`STORAGE_URL_MODE` decides how the app is given a URL: `public` (bucket serves
+reads directly), `presign` (signed, expiring URLs), or `proxy` (through
+`backend/mains/image.php`, for a private bucket with stable URLs).
+
 **Migrations** in `db/migrations/` are idempotent and safe to re-run:
 
 ```bash

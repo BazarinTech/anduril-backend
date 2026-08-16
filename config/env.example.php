@@ -92,6 +92,41 @@ return [
     'SMS_API_KEY'   => '',
     'SMS_SENDER_ID' => '',
 
+    // -- Object storage (Railway Bucket, or any S3-compatible endpoint) ---
+    //
+    // Product images used to be written to admin/uploads/ on the web host.
+    // That does not survive a container platform: the filesystem is ephemeral,
+    // so every deploy discards whatever was uploaded since the last one.
+    //
+    // Fill these in from the Bucket service's "Credentials" tab. All four are
+    // required together -- a partly-filled bucket is treated as not configured,
+    // so uploads keep working locally instead of half-failing.
+    //
+    // Leave them empty in development to keep writing to disk.
+    'S3_ENDPOINT'          => '',   // e.g. https://bucket-production-xxxx.up.railway.app
+    'S3_ACCESS_KEY_ID'     => '',
+    'S3_SECRET_ACCESS_KEY' => '',
+    'S3_BUCKET'            => '',   // the bucket name, e.g. roomy-wardrobe
+    'S3_REGION'            => 'us-east-1',  // most S3-compatible hosts ignore this
+    // Path-style (endpoint/bucket/key) rather than virtual-host style
+    // (bucket.endpoint/key). Self-hosted endpoints rarely have the wildcard
+    // DNS that virtual-host style needs, so this defaults on.
+    'S3_PATH_STYLE'        => '1',
+    'S3_PREFIX'            => 'products',
+
+    // 'local' or 's3'. Empty picks s3 when the four keys above are set.
+    'STORAGE_DRIVER'       => '',
+
+    // How the app is given an image URL:
+    //   public   straight at the bucket (needs public read; fastest)
+    //   presign  signed, expiring URL minted per request (bucket stays private)
+    //   proxy    through backend/mains/image.php (private bucket, stable URLs)
+    // Empty picks 'public' when S3_PUBLIC_BASE_URL is set, 'presign' otherwise.
+    'STORAGE_URL_MODE'     => '',
+    'S3_PUBLIC_BASE_URL'   => '',   // e.g. https://bucket-production-xxxx.up.railway.app/roomy-wardrobe
+    'S3_PRESIGN_TTL'       => 86400,
+    'S3_TIMEOUT'           => 20,
+
     // -- Encryption -------------------------------------------------------
     // Used by Bazarin\Security\Cryptions.
     'CRYPT_KEY' => '',

@@ -1,5 +1,15 @@
 <?php
 include 'includes/main.php';
+require_once __DIR__ . '/../lib/storage.php';
+
+/**
+ * Product images no longer go to `uploads/` on this machine's disk. They go
+ * through lib/storage.php, which writes to the S3-compatible bucket when one
+ * is configured and to disk otherwise. See that file for why.
+ *
+ * The database still stores the bare filename, exactly as before -- only where
+ * the bytes live and how a URL is built have changed.
+ */
 
 $error = '';
 $msg = '';
@@ -36,23 +46,25 @@ if (isset($_POST['submit'])) {
         $maxSize   = 1000 * 1024; // 1000KB (your comment said 100KB, but math is 1000KB)
 
         if (in_array($imageType, $allowedTypes, true) && $imageSize <= $maxSize) {
-            $uploadDir = "uploads/";
-            if (!is_dir($uploadDir)) {
-                mkdir($uploadDir, 0777, true);
-            }
-
+            // The upload directory is storage's business now; when the
+            // driver is 'local' it creates its own.
             $tmpPath = $_FILES['image']['tmp_name'];
 
             // If SVG: do not resize with GD (GD can't rasterize SVG)
             if ($imageType === 'image/svg+xml') {
-                // Just move it as-is (or reject if you don’t want SVG at all)
-                $imageName = time() . "_" . basename($_FILES['image']['name']);
-                $imagePath = $uploadDir . $imageName;
+                // Not rasterised -- GD cannot. Stored as supplied.
+                $svgBase   = pathinfo($_FILES['image']['name'], PATHINFO_FILENAME);
+                $safeSvg   = preg_replace('/[^A-Za-z0-9_\-]/', '_', $svgBase);
+                $imageName = time() . "_" . $safeSvg . ".svg";
 
-                if (!move_uploaded_file($tmpPath, $imagePath)) {
-                    echo "Failed to upload SVG.";
-                    exit;
+                $stored = store_product_image($imageName, file_get_contents($tmpPath), 'image/svg+xml');
+
+                if (!$stored['ok']) {
+                    $error = $stored['error'];
+                    goto render_page;
                 }
+
+                $imageName = $stored['name'];
 
                 $insert = $query->insert('products', [
                     'name'        => $name,
@@ -67,8 +79,8 @@ if (isset($_POST['submit'])) {
                     'order_limit' => $limit
                 ]);
 
-                echo "Product uploaded successfully!";
-                exit;
+                $msg = 'Product created successfully.';
+                goto render_page;
             }
 
             // Create image resource from uploaded file (NOW includes WEBP)
@@ -134,31 +146,51 @@ if (isset($_POST['submit'])) {
             $safeBase  = preg_replace('/[^A-Za-z0-9_\-]/', '_', $baseName);
             $imageName = time() . "_" . $safeBase;
 
-            // Save based on image type
+            /**
+             * GD writes to a path or to stdout. The resized image is captured
+             * from the output buffer so it can be handed to storage as bytes
+             * -- writing it to disk first, only to read it back and upload it,
+             * would mean a temp file on a filesystem that may not survive the
+             * request.
+             */
+            ob_start();
+
             if ($imageType === 'image/png') {
-                $imageName .= ".png";
-                $imagePath  = $uploadDir . $imageName;
-                imagepng($resizedImage, $imagePath);
+                $imageName  .= ".png";
+                $outputType  = 'image/png';
+                imagepng($resizedImage);
             } elseif ($imageType === 'image/gif') {
-                $imageName .= ".gif";
-                $imagePath  = $uploadDir . $imageName;
-                imagegif($resizedImage, $imagePath);
+                $imageName  .= ".gif";
+                $outputType  = 'image/gif';
+                imagegif($resizedImage);
             } elseif ($imageType === 'image/webp') {
                 if (!function_exists('imagewebp')) {
-                    echo "WEBP output is not supported on this server (GD missing WEBP support).";
-                    exit;
+                    ob_end_clean();
+                    $error = 'WEBP output is not supported on this server (GD is missing WEBP support).';
+                    goto render_page;
                 }
-                $imageName .= ".webp";
-                $imagePath  = $uploadDir . $imageName;
-                imagewebp($resizedImage, $imagePath, 90); // quality 0-100
+                $imageName  .= ".webp";
+                $outputType  = 'image/webp';
+                imagewebp($resizedImage, null, 90); // quality 0-100
             } else {
-                $imageName .= ".jpg";
-                $imagePath  = $uploadDir . $imageName;
-                imagejpeg($resizedImage, $imagePath, 90);
+                $imageName  .= ".jpg";
+                $outputType  = 'image/jpeg';
+                imagejpeg($resizedImage, null, 90);
             }
+
+            $imageBytes = ob_get_clean();
 
             imagedestroy($resizedImage);
             imagedestroy($image);
+
+            $stored = store_product_image($imageName, $imageBytes, $outputType);
+
+            if (!$stored['ok']) {
+                $error = $stored['error'];
+                goto render_page;
+            }
+
+            $imageName = $stored['name'];
 
             $insert = $query->insert('products', [
                 'name'        => $name,
@@ -173,14 +205,22 @@ if (isset($_POST['submit'])) {
                 'order_limit' => $limit
             ]);
 
-            echo "Product uploaded successfully!";
+            $msg = 'Product created successfully.';
         } else {
-            echo "Invalid file type or size.";
+            $error = 'Invalid file type or size. Images must be PNG, JPG, GIF, WEBP or SVG and under 1000KB.';
         }
     } else {
-        echo "No file uploaded.";
+        $error = 'No file uploaded.';
     }
 }
+
+/**
+ * The upload branches used to `echo` a bare sentence and `exit`, which
+ * abandoned the page -- the admin got one line of text on a blank screen and
+ * had to navigate back. They set $msg / $error and land here instead, so the
+ * result is rendered on the page it came from.
+ */
+render_page:
 ?>
 
 <!DOCTYPE html>
@@ -309,7 +349,42 @@ if (isset($_POST['submit'])) {
                 <!-- Start All Card -->
                 <div class="flex flex-col gap-4 min-h-[calc(100vh-212px)]">
                     <div class="grid grid-cols-1 gap-4">
-                        
+
+                        <?php if ($msg || $error): ?>
+                            <div class="card">
+                                <p class="<?= $msg ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger' ?> text-center rounded-lg py-2 px-2">
+                                    <?= htmlspecialchars($msg ?: $error, ENT_QUOTES, 'UTF-8') ?>
+                                </p>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php
+                        /*
+                         * Where images are going right now. An upload that
+                         * silently lands on a container's disk and disappears
+                         * on the next deploy is the failure this is here to
+                         * make visible.
+                         */
+                        $storage_state = storage_health();
+                        ?>
+                        <?php if (!$storage_state['ok']): ?>
+                            <div class="card">
+                                <p class="bg-warning/20 text-warning rounded-lg py-2 px-3 text-sm">
+                                    <strong>Image storage problem.</strong>
+                                    <?= htmlspecialchars($storage_state['detail'], ENT_QUOTES, 'UTF-8') ?>.
+                                    Uploads will fail until this is fixed.
+                                </p>
+                            </div>
+                        <?php elseif ($storage_state['driver'] === 'local'): ?>
+                            <div class="card">
+                                <p class="bg-info/20 text-info rounded-lg py-2 px-3 text-sm">
+                                    Images are being written to this server's disk. That is fine for
+                                    development, but on a container host they are lost at the next deploy
+                                    &mdash; configure the bucket before going live.
+                                </p>
+                            </div>
+                        <?php endif; ?>
+
                         <div class="card">
                         <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Products Records</h2>
                         

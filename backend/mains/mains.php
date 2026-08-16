@@ -176,6 +176,11 @@ if (isset($data['userID'])) {
         }
         // Get investments products and user orders
         $products = $query->select('products', '*', ['status' => 'Active']);
+
+        // Resolve each product's image to a URL, for the same reason as above.
+        foreach ($products as $i => $p) {
+            $products[$i]['image_url'] = product_image_url($p['image'] ?? '');
+        }
         $investment_orders = $query->select('orders', '*', ['type' => 'investment', 'userID' => $userID], ['column' => 'ID', 'direction' => 'desc']);
 
         // Phase 5.1 -- every product once, indexed by ID, instead of one query
@@ -256,6 +261,17 @@ if (isset($data['userID'])) {
                 'total_returns' => $order['returns'],
                 'return_rate' => $user_product[0]['returns'] ?? 0,
                 'remaining' => $rem,
+                /**
+                 * A resolved URL, not a bare filename.
+                 *
+                 * The app used to build this itself by pasting the filename
+                 * onto a hardcoded `https://sanderson.xgramm.com/admin/uploads/`.
+                 * That put knowledge of where images live in a client that
+                 * cannot be redeployed as easily as this one, and it broke the
+                 * moment storage moved. `image` is kept alongside it so an
+                 * older build of the app keeps working.
+                 */
+                'image_url' => product_image_url($user_product[0]['image'] ?? ''),
                 'image' => $user_product[0]['image'] ?? '',
                 /**
                  * `roll` stays a 0/1 int because that is the contract the app
