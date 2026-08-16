@@ -11,6 +11,41 @@ set -eu
 
 PORT="${PORT:-80}"
 
+# -----------------------------------------------------------------------------
+#  Exactly one MPM
+# -----------------------------------------------------------------------------
+#  Apache refuses to start with "AH00534: More than one MPM loaded" when two of
+#  mpm_prefork/mpm_event/mpm_worker are enabled, and the platform restarts it,
+#  so the only symptom is that line repeating forever.
+#
+#  The Dockerfile already normalises this at build time. It is done again here
+#  because a build-time fix only covers what the build controls: a base-image
+#  change, a cached layer, or a platform that mutates the image afterwards can
+#  all reintroduce it, and the failure mode is a crash loop rather than
+#  anything diagnosable.
+#
+#  The list is printed either way. If this ever fires, the log says exactly
+#  which modules were present instead of leaving it to guesswork.
+# -----------------------------------------------------------------------------
+MPM_DIR=/etc/apache2/mods-enabled
+MPM_ENABLED=$(ls "${MPM_DIR}" 2>/dev/null | grep '^mpm_.*\.load$' | tr '\n' ' ' || true)
+MPM_COUNT=$(echo "${MPM_ENABLED}" | wc -w)
+
+if [ "${MPM_COUNT}" -eq 1 ]; then
+    echo "[entrypoint] MPM: ${MPM_ENABLED}"
+else
+    echo "[entrypoint] MPM: found ${MPM_COUNT} (${MPM_ENABLED}) -- normalising to mpm_prefork" >&2
+
+    rm -f "${MPM_DIR}/mpm_event.load"  "${MPM_DIR}/mpm_event.conf"
+    rm -f "${MPM_DIR}/mpm_worker.load" "${MPM_DIR}/mpm_worker.conf"
+
+    # mod_php requires prefork, so that is the one to keep.
+    ln -sf ../mods-available/mpm_prefork.load "${MPM_DIR}/mpm_prefork.load"
+    ln -sf ../mods-available/mpm_prefork.conf "${MPM_DIR}/mpm_prefork.conf"
+
+    echo "[entrypoint] MPM: now $(ls "${MPM_DIR}" | grep '^mpm_.*\.load$' | tr '\n' ' ')" >&2
+fi
+
 # Both files matter: ports.conf decides what Apache binds, the vhost decides
 # which requests it answers. Changing one and not the other yields a server
 # listening on the right port that 404s everything.
