@@ -7,16 +7,52 @@ $data = $fileGetContent->get_content();
 
 //process authentication
 if (isset($data)) {
-    $phone = $data['phone'];
-    $type = $data['type'];
-    $password = $data['password'];
+    // Missing keys are a malformed request, not a crash. Reading them directly
+    // raised "Undefined array key" warnings into the response body on every
+    // incomplete call, which is both noise in the log and a way to break the
+    // JSON contract if display_errors is ever on.
+    $phone = $data['phone'] ?? '';
+    $type = $data['type'] ?? '';
+    $password = $data['password'] ?? '';
 
     // Check if type of auth request is either login or register
     if ($type == 'register') {
-        $con_password = $data['confirmPassword'];
-        $email = $data['email'];
-        $upline = $data['upline'];
-        $name = $data['name'];
+        $con_password = $data['confirmPassword'] ?? '';
+        $email = $data['email'] ?? '';
+        $name = $data['name'] ?? '';
+
+        /**
+         * `upline` is the referrer's numeric user ID, and the column is INT.
+         *
+         * The app only fills it in when the visitor arrived through an invite
+         * link (?inviteCode=...), so a direct sign-up sends an empty string.
+         * Passing that straight through meant MySQL in strict mode rejected
+         * the INSERT outright:
+         *
+         *   SQLSTATE[HY000]: 1366 Incorrect integer value: '' for column 'upline'
+         *
+         * which surfaced as an uncaught PDOException, a 500 with an HTML body,
+         * and "Backend did not return valid JSON" in the app -- so nobody
+         * without an invite link could register at all.
+         *
+         * An unknown referrer is also normalised to 0 rather than stored.
+         * `upline` is walked three levels deep to pay commission, and a
+         * dangling ID would put a broken link in the middle of that chain.
+         */
+        $upline = 0;
+        $uplineInput = trim((string) ($data['upline'] ?? ''));
+
+        if ($uplineInput !== '' && ctype_digit($uplineInput)) {
+            $referrer = $query->select('users', '*', ['ID' => (int) $uplineInput]);
+
+            if ($referrer !== []) {
+                $upline = (int) $uplineInput;
+            } else {
+                error_log('[auth] registration cited unknown upline ' . $uplineInput . '; recorded as none.');
+            }
+        } elseif ($uplineInput !== '') {
+            error_log('[auth] registration cited non-numeric upline "' . $uplineInput . '"; recorded as none.');
+        }
         // $country = $data['country'];
         $country = '254'; // Default country code Kenya
 
