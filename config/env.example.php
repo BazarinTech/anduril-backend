@@ -76,6 +76,16 @@ return [
     'SMTP_FROM_NAME' => '',
 
     // -- SMS (HostPinnacle) -----------------------------------------------
+    // Used for phone verification, password reset, and withdrawal PIN reset.
+    //
+    // SMS_API_KEY is what actually authenticates -- it goes out as the
+    // `apikey` header. SMS_PASSWORD is posted in the body and the gateway
+    // accepts the request regardless of what it contains, so a placeholder
+    // there does not mean SMS is disabled. Verified against the live
+    // endpoint: messages send with SMS_PASSWORD set to 'xxxxx'.
+    //
+    // The gateway also answers `"status":"success"` for numbers that cannot
+    // receive anything, so a Success response is not proof of delivery.
     'SMS_URL'       => 'https://smsportal.hostpinnacle.co.ke/SMSApi/send',
     'SMS_USERID'    => '',
     'SMS_PASSWORD'  => '',
