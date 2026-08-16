@@ -1,0 +1,58 @@
+# =============================================================================
+#  Excluded from the build context.
+#
+#  Two jobs: keep secrets out of the image, and keep the context small enough
+#  that builds are quick.
+# =============================================================================
+
+# -- Secrets ------------------------------------------------------------------
+# The deployed service reads configuration from environment variables; a config
+# file baked into the image would silently take effect wherever the image runs,
+# and would carry local credentials with it.
+config/env.php
+.env
+.env.*
+
+# -- Version control ----------------------------------------------------------
+# .git holds every secret that has ever been committed, which for this repo is
+# several. It has no business inside a running container.
+.git
+.gitignore
+.gitattributes
+
+# -- Runtime noise ------------------------------------------------------------
+error_log
+**/error_log
+php_errorlog
+
+# -- Docs and tests -----------------------------------------------------------
+# Not served, not executed in production. The Apache config denies them anyway;
+# leaving them out means there is nothing to deny.
+docs
+tests
+README.md
+
+# -- Local development --------------------------------------------------------
+# bin/router.php emulates the .htaccess rewrite for `php -S`. The image runs
+# Apache, which honours the real thing, so it is dead weight here. The rest of
+# bin/ is maintenance scripts that are run deliberately, and they stay.
+bin/router.php
+
+# Uploaded product images. The seeded .webp files are kept -- they are what the
+# seeded products reference, and bin/migrate-images-to-bucket.php reads them.
+admin/uploads/*
+!admin/uploads/*.webp
+
+# -- Editor / OS --------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea
+.vscode
+.claude
+
+# -- Build artefacts ----------------------------------------------------------
+*.zip
+Dockerfile
+.dockerignore

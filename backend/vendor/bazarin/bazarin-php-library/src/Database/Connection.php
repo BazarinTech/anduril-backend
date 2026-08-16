@@ -40,10 +40,23 @@ class Connection {
                 [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
             );
         } catch (PDOException $e) {
-            // The DSN carries the host and database name but no credentials,
-            // so it is safe to log and it is the thing you need to see.
+            /**
+             * The detail goes to the log, never to the response.
+             *
+             * This used to die() with the driver's own message, which prints
+             * the host, port and database name to whoever made the request --
+             * and it did so regardless of APP_DEBUG, because it is an explicit
+             * die() rather than an uncaught error. The DSN below carries no
+             * credentials, so it is safe in the log and it is exactly what you
+             * need to diagnose a refused connection.
+             */
             error_log("Database connection failed for {$dsn}: " . $e->getMessage());
-            die("Database Connection Error: " . $e->getMessage());
+
+            if (PHP_SAPI !== 'cli') {
+                http_response_code(500);
+            }
+
+            die('Service temporarily unavailable.');
         }
     }
 
