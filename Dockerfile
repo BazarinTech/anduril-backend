@@ -41,6 +41,23 @@ RUN set -eux; \
 # -----------------------------------------------------------------------------
 # Apache
 # -----------------------------------------------------------------------------
+# Exactly one MPM, stated explicitly.
+#
+# Apache refuses to start with "AH00534: More than one MPM loaded" if two of
+# mpm_prefork/mpm_event/mpm_worker are enabled, and it does so in a restart
+# loop that says nothing about which two. The base image enables prefork
+# (mod_php requires it), but that is an assumption about the base rather than
+# something this file controls -- any layer, base-image update or builder that
+# touches the apache2 package can enable a second one.
+#
+# Disabling the other two and enabling prefork explicitly makes the outcome
+# independent of what came before.
+RUN set -eux; \
+    a2dismod mpm_event  2>/dev/null || true; \
+    a2dismod mpm_worker 2>/dev/null || true; \
+    a2enmod mpm_prefork; \
+    ls /etc/apache2/mods-enabled/ | grep -c '^mpm_.*\.load$' | grep -qx 1
+
 # rewrite  -- admin/.htaccess extensionless URLs
 # headers  -- used by the CORS handling in bootstrap
 RUN a2enmod rewrite headers
@@ -72,6 +89,14 @@ RUN set -eux; \
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Fail the BUILD on a bad Apache configuration, rather than the deploy.
+#
+# A configuration error at runtime is a container that starts, exits, and is
+# restarted by the platform -- a crash loop whose only symptom is one line
+# repeated every second in the deploy logs. The same mistake caught here stops
+# the build, names itself, and never reaches production.
+RUN apache2ctl configtest
 
 # Documents intent only. The real port comes from $PORT at runtime, which is
 # what Railway sets and routes to.
