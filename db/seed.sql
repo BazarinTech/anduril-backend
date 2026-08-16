@@ -16,7 +16,9 @@
 --      php -r 'echo password_hash("newpassword", PASSWORD_DEFAULT);'
 -- =============================================================================
 
-USE sanderson;
+-- No USE statement: the target database is chosen by whoever applies this,
+-- which on a managed host is not named `sanderson`.
+--     mysql -u root -p my_database < db/seed.sql
 
 
 -- -----------------------------------------------------------------------------

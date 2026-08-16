@@ -34,9 +34,29 @@
 --     change performance only, never results.
 -- =============================================================================
 
-DROP DATABASE IF EXISTS sanderson;
-CREATE DATABASE sanderson CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE sanderson;
+-- -----------------------------------------------------------------------------
+-- NO DROP/CREATE/USE DATABASE, deliberately.
+--
+-- This file used to open by dropping and recreating a database called
+-- `sanderson`. That is wrong anywhere the database is provisioned for you --
+-- a managed MySQL hands you a database whose name you do not choose, and
+-- creating a second one named `sanderson` inside it puts every table
+-- somewhere the application will never look. The symptom is the worst kind:
+-- healthy container, healthy database, correct credentials, and every page
+-- 500ing on a missing table.
+--
+-- It also made this file destructive. Piped at the wrong host it silently
+-- discarded a live database.
+--
+-- Every table below is created only if absent, so this file is safe to
+-- apply repeatedly and safe to apply to a database that is already populated.
+--
+-- Apply it against a named database:
+--     mysql -u root -p my_database < db/schema.sql
+--
+-- To reset a local database from scratch, drop it explicitly first:
+--     mysql -u root -p -e "DROP DATABASE IF EXISTS sanderson; CREATE DATABASE sanderson"
+-- -----------------------------------------------------------------------------
 
 
 -- -----------------------------------------------------------------------------
@@ -45,7 +65,7 @@ USE sanderson;
 -- `upline` is a self-reference; 0 means "no referrer" and the referral walk
 -- tests for it explicitly, so it is not a nullable FK.
 -- -----------------------------------------------------------------------------
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     ID           INT AUTO_INCREMENT PRIMARY KEY,
     email        VARCHAR(255) NOT NULL,
     phone        VARCHAR(13)  NOT NULL,
@@ -71,7 +91,7 @@ CREATE TABLE users (
 -- One row per user, created immediately after registration.
 -- `level` is the incentive tier ('lvl1'), not a referral depth.
 -- -----------------------------------------------------------------------------
-CREATE TABLE wallets (
+CREATE TABLE IF NOT EXISTS wallets (
     ID                 INT AUTO_INCREMENT PRIMARY KEY,
     userID             INT         NOT NULL,
     balance            VARCHAR(10) NOT NULL DEFAULT '0',
@@ -100,7 +120,7 @@ CREATE TABLE wallets (
 -- `trackingID` is the correlation key the payment callbacks match on, so it
 -- carries an index -- every callback looks a row up by it.
 -- -----------------------------------------------------------------------------
-CREATE TABLE transactions (
+CREATE TABLE IF NOT EXISTS transactions (
     ID          INT AUTO_INCREMENT PRIMARY KEY,
     userID      VARCHAR(10)  NOT NULL,
     type        VARCHAR(30)  NOT NULL,
@@ -136,7 +156,7 @@ CREATE TABLE transactions (
 -- `order_limit` caps concurrent active orders per user; product ID 1 is
 -- additionally hardcoded in invest.php as a once-ever free trial.
 -- -----------------------------------------------------------------------------
-CREATE TABLE products (
+CREATE TABLE IF NOT EXISTS products (
     ID          INT AUTO_INCREMENT PRIMARY KEY,
     name        VARCHAR(255) NOT NULL,
     returns     VARCHAR(10)  NOT NULL,
@@ -163,7 +183,7 @@ CREATE TABLE products (
 --   reward     -> prodID is the literal string 'REWARD' (see header note)
 -- `rolls` gates the daily claim: 1 = claimable, 0 = already claimed today.
 -- -----------------------------------------------------------------------------
-CREATE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
     ID        INT AUTO_INCREMENT PRIMARY KEY,
     userID    INT         NOT NULL,
     prodID    INT         NOT NULL,
@@ -196,7 +216,7 @@ CREATE TABLE orders (
 -- `[0]`, so exactly one row must always exist or the whole API breaks.
 -- Percentages are whole numbers: level1 = 10 means 10%.
 -- -----------------------------------------------------------------------------
-CREATE TABLE controls (
+CREATE TABLE IF NOT EXISTS controls (
     ID                 INT AUTO_INCREMENT PRIMARY KEY,
     minWith            VARCHAR(10) NOT NULL DEFAULT '200',
     minDep             VARCHAR(10) NOT NULL DEFAULT '100',
@@ -223,7 +243,7 @@ CREATE TABLE controls (
 -- Referral milestones. type: 'users' (total downlines) | 'actives' (active
 -- downlines). reward_type is 'money' -- the code has no other branch.
 -- -----------------------------------------------------------------------------
-CREATE TABLE bonus (
+CREATE TABLE IF NOT EXISTS bonus (
     ID          INT AUTO_INCREMENT PRIMARY KEY,
     name        VARCHAR(255) NOT NULL,
     type        VARCHAR(20)  NOT NULL,
@@ -240,7 +260,7 @@ CREATE TABLE bonus (
 -- coupons
 -- `expiry` is a lifetime in MINUTES measured from time_created, not a date.
 -- -----------------------------------------------------------------------------
-CREATE TABLE coupons (
+CREATE TABLE IF NOT EXISTS coupons (
     ID           INT AUTO_INCREMENT PRIMARY KEY,
     code         VARCHAR(10) NOT NULL,
     amount       VARCHAR(10) NOT NULL,
@@ -256,7 +276,7 @@ CREATE TABLE coupons (
 -- Salary tiers users apply for once they hit a referral count.
 -- `bonusItem` is a physical reward description shown in the app.
 -- -----------------------------------------------------------------------------
-CREATE TABLE incentives (
+CREATE TABLE IF NOT EXISTS incentives (
     ID        INT AUTO_INCREMENT PRIMARY KEY,
     name      VARCHAR(20)  NOT NULL,
     referrals INT          NOT NULL,
@@ -273,7 +293,7 @@ CREATE TABLE incentives (
 -- incentives_requests
 -- One application per user per incentive; the API enforces that by counting.
 -- -----------------------------------------------------------------------------
-CREATE TABLE incentives_requests (
+CREATE TABLE IF NOT EXISTS incentives_requests (
     ID          INT AUTO_INCREMENT PRIMARY KEY,
     name        VARCHAR(50) NOT NULL,
     phone       VARCHAR(15) NOT NULL,
@@ -292,7 +312,7 @@ CREATE TABLE incentives_requests (
 -- verification_codes
 -- `expiry` is minutes from time_created. Nothing enforces it yet (Phase 2.4).
 -- -----------------------------------------------------------------------------
-CREATE TABLE verification_codes (
+CREATE TABLE IF NOT EXISTS verification_codes (
     ID           INT AUTO_INCREMENT PRIMARY KEY,
     code         VARCHAR(20) NOT NULL,
     expiry       INT         NOT NULL DEFAULT 5,
@@ -315,7 +335,7 @@ CREATE TABLE verification_codes (
 -- such as '[view][edit][add][finance]', parsed with a regex.
 -- name/email/passwrd/phone are written by admin/register.php.
 -- -----------------------------------------------------------------------------
-CREATE TABLE admins (
+CREATE TABLE IF NOT EXISTS admins (
     ID           INT AUTO_INCREMENT PRIMARY KEY,
     userID       INT          NOT NULL,
     roles        VARCHAR(255) NOT NULL DEFAULT 'admin',
@@ -337,7 +357,7 @@ CREATE TABLE admins (
 -- Backing store for DbSessionHandler in bootstrap/admin.php.
 -- `timestamp` is a unix epoch int, used by the GC sweep.
 -- -----------------------------------------------------------------------------
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     id        VARCHAR(128) NOT NULL PRIMARY KEY,
     data      TEXT         NOT NULL,
     timestamp INT          NOT NULL,
