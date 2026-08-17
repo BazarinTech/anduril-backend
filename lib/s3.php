@@ -330,8 +330,27 @@ if (!function_exists('s3_presign')) {
      *
      * Query-string signing rather than header signing, so the URL can go
      * straight into an <img src>.
+     *
+     * STABLE WITHIN A WINDOW -- THIS IS THE WHOLE POINT
+     * -------------------------------------------------
+     * The signing timestamp is floored to S3_PRESIGN_WINDOW rather than taken
+     * from the clock, so every call within the same window produces a
+     * byte-identical URL.
+     *
+     * Signing at "now" seems harmless and is not. The signature changes on
+     * every render, so the URL changes, so the browser's cache key changes --
+     * and a cache that never hits is a cache that does not exist. Product
+     * images were being re-downloaded in full on every page load, at roughly
+     * two seconds each against the bucket, for files of about 20KB. The
+     * latency was never the file size; it was fetching them again and again.
+     *
+     * The same reasoning applies to any CDN in front, and to Next.js's image
+     * optimiser, which keys its cache on the source URL.
+     *
+     * Validity spans the window *plus* the requested lifetime, so a URL minted
+     * at the very end of a window is still good for the full duration.
      */
-    function s3_presign($key, $expiresIn = 3600, array $cfg = null)
+    function s3_presign($key, $expiresIn = 86400, array $cfg = null)
     {
         $cfg = $cfg ?? s3_config();
 
@@ -344,7 +363,22 @@ if (!function_exists('s3_presign')) {
         $host  = $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
         $path  = $parts['path'] ?? '/';
 
-        $now       = gmdate('Ymd\THis\Z');
+        /**
+         * A day by default, aligned with the image optimiser's cache TTL.
+         *
+         * Shorter windows rotate the URL more often, and every rotation is a
+         * cache miss for the browser, any CDN, and Next's optimiser -- which
+         * means another 1.4-9s round trip to the bucket for a file that has
+         * not changed. Longer windows mean a given URL is shareable for
+         * longer, which for public catalogue art is not a meaningful exposure.
+         */
+        $window = max(60, (int) env('S3_PRESIGN_WINDOW', 86400));
+        $anchor = intdiv(time(), $window) * $window;
+
+        // AWS and compatible endpoints cap this at seven days.
+        $expiresIn = min($expiresIn + $window, 604800);
+
+        $now       = gmdate('Ymd\THis\Z', $anchor);
         $shortDate = substr($now, 0, 8);
         $scope     = $shortDate . '/' . $cfg['region'] . '/s3/aws4_request';
 

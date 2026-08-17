@@ -130,6 +130,10 @@ return [
     'STORAGE_URL_MODE'     => '',
     'S3_PUBLIC_BASE_URL'   => '',   // e.g. https://bucket-production-xxxx.up.railway.app/roomy-wardrobe
     'S3_PRESIGN_TTL'       => 86400,
+    // How long a presigned URL stays byte-identical. Signing at "now" changes
+    // the URL on every render, which defeats every cache in the chain and made
+    // product images re-download on each page view.
+    'S3_PRESIGN_WINDOW'    => 86400,
     'S3_TIMEOUT'           => 20,
 
     // -- Encryption -------------------------------------------------------
