@@ -57,6 +57,29 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
         "callbackUrl" => callback_url('palpluss_deposit_callback.php'),
     ];
 
+    /**
+     * Log the callback URL handed over with each push.
+     *
+     * If it is wrong, unreachable, or missing its token, the deposit still
+     * initiates, the customer still pays, and the money simply never settles
+     * -- with nothing in the logs to say why. This is the value that decides
+     * whether a payment can ever be credited, so it is worth one line.
+     */
+    error_log('[deposit] callback URL: ' . $data['callbackUrl']);
+
+    $callbackBase = (string) env('CALLBACK_BASE_URL', '');
+
+    if ($callbackBase === '' || stripos($callbackBase, 'REPLACE') !== false || !filter_var($callbackBase, FILTER_VALIDATE_URL)) {
+        // Refuse rather than take money that cannot be credited. A deposit
+        // whose callback can never arrive is worse than one that never starts.
+        error_log('[deposit] REFUSED: CALLBACK_BASE_URL is not a usable URL (' . $callbackBase . ')');
+
+        return [
+            'status' => 'Failed',
+            'message' => 'Deposits are temporarily unavailable. Please try again shortly.',
+        ];
+    }
+
     $inititate = $api->request(env('PALPLUSS_TOPUP_URL'), 'POST', $data, $headers);
 
     // An unreachable provider makes Curl::request() return null.

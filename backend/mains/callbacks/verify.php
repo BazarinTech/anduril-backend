@@ -30,7 +30,32 @@ function verify_callback_request($context = 'callback')
     $remoteIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 
     $expected = (string) env('CALLBACK_TOKEN', '');
-    $provided = (string) ($_GET['t'] ?? '');
+
+    /**
+     * The secret can arrive three ways.
+     *
+     * It is handed to the provider in the callback URL's query string, which
+     * is the only channel we control per transaction. But providers vary in
+     * how faithfully they reproduce that URL -- some drop the query string
+     * entirely, some re-encode it -- and when that happens every callback is
+     * a 403, nothing is credited, and the customer's deposit sits Pending
+     * with no indication that money arrived.
+     *
+     * A header or a body field carries exactly the same shared secret, so
+     * accepting them costs nothing in strength and removes a whole class of
+     * silent failure.
+     */
+    $body = json_decode(file_get_contents('php://input'), true);
+    $body = is_array($body) ? $body : [];
+
+    $provided = (string) (
+        $_GET['t']
+        ?? $_SERVER['HTTP_X_CALLBACK_TOKEN']
+        ?? $_POST['t']
+        ?? $body['t']
+        ?? $body['token']
+        ?? ''
+    );
 
     // Fail closed. An unset secret means misconfiguration, and the safe
     // reading of "I cannot verify this" is "I do not accept this".
@@ -42,7 +67,26 @@ function verify_callback_request($context = 'callback')
     }
 
     if ($provided === '' || !hash_equals($expected, $provided)) {
-        error_log("[{$context}] rejected from {$remoteIp}: bad or missing callback token");
+        /**
+         * Log enough to tell the two cases apart.
+         *
+         * "No token at all" usually means the provider did not reproduce the
+         * query string it was given, which is a configuration problem on
+         * their side. "Wrong token" means CALLBACK_TOKEN was rotated without
+         * the in-flight transactions being re-issued. The old message said
+         * "bad or missing" and left you unable to tell which -- while real
+         * deposits hung Pending.
+         */
+        $why = $provided === ''
+            ? 'no token present (the provider may have dropped the query string)'
+            : 'token did not match';
+
+        error_log(
+            "[{$context}] rejected from {$remoteIp}: {$why}"
+            . ' | uri=' . ($_SERVER['REQUEST_URI'] ?? '?')
+            . ' | body=' . substr(json_encode($body), 0, 400)
+        );
+
         http_response_code(403);
         echo json_encode(['status' => 'error', 'message' => 'Forbidden']);
         exit;
