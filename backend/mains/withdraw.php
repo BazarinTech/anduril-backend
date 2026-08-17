@@ -26,51 +26,10 @@ function create_tracking_ID() {
 };
 
  
-//payment method payhero auto mpesa function
-// function mpesa_auto($query, $userID, $amount, $account, $api){
-//     $trackingID = create_tracking_ID();
-//     $fees = $amount * 0.08;
-//     $send_amount = $amount - $fees;
-//     $headers = [
-//         'Authorization: Basic OGlUSFZFaUhMWnN3a2hHVVBHc3A6anVoWFZrRk5qSVl0MGNMOERGMlR3dlhrQ0VWUWJHNDVVVnNaMEdDSw=='
-//     ];
-//     $data = [
-//         "amount" => (float) $send_amount,
-//         "phone_number" => $account,
-//         "channel_id" => 1549, 
-//         "external_reference" => $trackingID,
-//         "callback_url" => "https://m-verbal.club",
-//         "network_code" => "63902",
-//         "channel" => "mobile",
-//         "payment_service" => "b2c" 
-//     ];
-//     $inititate = $api->request('https://backend.payhero.co.ke/api/v2/withdraw', 'POST', $data, $headers);
-
-//     if (!isset($inititate['error_code']) && isset($inititate['status'])){
-//         if($inititate['status'] === 'QUEUED'){
-//             $query->insert('transactions', ['userID' => $userID, 'amount' => $amount, 'fees' => $fees, 'account' => $account, 'trackingID' => $trackingID, 'type' => 'Withdraw', 'status' => 'Success' ]);
-//             $res = [
-//                 'status' => 'Success',
-//                 'message' => 'Withdrawal made succesfully, fee charge Kes '.$fees.' amount to recieve kes '.$send_amount.'. Expect to recieve your funds within 1 minute. If not, contact our support team.',
-//             ];
-//         }else{
-//             $res = [
-//             'status' => 'Failed',
-//             'message' => 'An error occured!'
-//         ];
-//         }
-
-//     }else {
-//         $res = [
-//             'status' => 'Failed',
-//             'message' => $inititate['error_message']
-//         ];
-//     }
-
-//     return $res;
-// }
-
-// Palplus auto payment method
+// A commented-out PayHero and SwiftWallet integration used to sit here. It was dead
+// code carrying live bearer tokens and endpoint URLs in the clear, which
+// is a credential in the repository whether or not anything executes it.
+// The working implementation is mpesa_auto() below, which uses Palpluss.
 function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
     $headers = [
         'Authorization: Basic ' . env('PALPLUSS_KEY')
@@ -116,40 +75,10 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
     return $res;
 }
 
-// // Swiftwallet auto payment method
-// function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
-//     $headers = [
-//         'Authorization: Bearer sw_ce486d659125d489f08c2db78f00fa434f6e7fd1b0938a389dfc2c40'
-//     ];
-//     $data = [
-//         "amount" => (float) $amount,
-//         "phone_number" => $account,
-//         "external_reference" => $trackingID,
-//         "callback_url" => "https://sanderson.xgramm.com/backend/mains/callbacks/swiftwallet_b2c_callback.php"
-//     ];
-//     $inititate = $api->request('https://swiftwallet.co.ke/v3/pay-request/', 'POST', $data, $headers);
-
-//   if ($inititate['success']) {
-//         $res = [
-//             'status' => 'Success',
-//             'message' => 'Mpesa transaction initiated successfully',
-//         ];
-//     }elseif(isset($inititate['error'])){
-//         $res = [
-//             'status' => 'Failed',
-//             'message' => $inititate['error'],
-//         ];
-//     }else{
-//         $res = [
-//             'status' => 'Failed',
-//             'message' => 'Transaction Failed. Kindly reach our customer service for quick assistance',
-//         ];
-//     }
-
-//     return $res;
-// }
-
-//process withdrwal request
+// A commented-out PayHero and SwiftWallet integration used to sit here. It was dead
+// code carrying live bearer tokens and endpoint URLs in the clear, which
+// is a credential in the repository whether or not anything executes it.
+// The working implementation is mpesa_auto() below, which uses Palpluss.
 if (isset($data)) {
     try {
         $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));

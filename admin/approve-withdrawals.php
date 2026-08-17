@@ -7,19 +7,10 @@ $msg = '';
 
 $isEdit = false;
 
-// payment method auto mpesa function for payhero
-// function mpesa_auto($query, $curl, $phone, $amount, $trackingID){
-//      $data = [
-//         "amount" => (float) $amount,
-//         "phone_number" => $phone,
-//         "channel_id" => 1549, 
-//         "external_reference" => $trackingID,
-//         "callback_url" => "https://grover.xgramm.com/backend/mains/callbacks/payhero_b2c_callback.php",
-//         "network_code" => "63902",
-//         "channel" => "mobile",
-//         "payment_service" => "b2c" 
-//     ];
-//     $initiate = $curl->request('https://backend.payhero.co.ke/api/v2/withdraw', 'POST', $data);
+// A commented-out PayHero integration used to sit here. It was dead
+// code carrying live bearer tokens and endpoint URLs in the clear, which
+// is a credential in the repository whether or not anything executes it.
+// The working implementation is mpesa_auto() below, which uses Palpluss.
     
 
 //     if (isset($initiate['error_code'])) {
@@ -31,13 +22,10 @@ $isEdit = false;
 //     }
     
     
-//     return [
-//             'status' => $status,
-//             'msg' => $msg
-//         ];
-// }
-
-//  payment method auto mpesa function for swiftwallet
+// A commented-out PayHero integration used to sit here. It was dead
+// code carrying live bearer tokens and endpoint URLs in the clear, which
+// is a credential in the repository whether or not anything executes it.
+// The working implementation is mpesa_auto() below, which uses Palpluss.
 function mpesa_auto($query, $curl, $phone, $amount, $trackingID){
     $headers = [
         'Authorization: Basic ' . env('PALPLUSS_KEY')

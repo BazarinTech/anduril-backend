@@ -56,47 +56,10 @@ function sanitizeKenyanPhone($input){
     return false;
 }
 
-// Function to send sms using umeskia softwares
-// function sendSMS($phoneNumber, $query, $curl, $type){
-    
-//     // Your SMS gateway API credentials
-//     $apiUrl = "https://comms.umeskiasoftwares.com/api/v1/sms/send";
-//     $apiKey = "7ac3d0e4b136d662d74c267e6bfe6974"; 
-//     $senderID = "UMS_SMS"; 
-//     $appID = "UMSC246701";
-//     $sms_code = generateSMSCode($query);
-//     $message = "Your verification code is: " . $sms_code ." . It is valid for 5 minutes.";
-//     $data = [
-//         "api_key" => $apiKey,
-//         "app_id" => $appID,
-//         "sender_id" => $senderID,
-//         "message" => $message,
-//         "phone" => $phoneNumber
-//     ];
-//     $inititate = $curl->request($apiUrl, 'POST', $data);
-
-//     if ($inititate['status'] === 'complete') {
-//         $insert_code = $query->insert('verification_codes', [
-//             'phone' => $phoneNumber,
-//             'code' => $sms_code,
-//             'expiry' => '5',
-//             'phone' => $phoneNumber,
-//             'type' => $type 
-//         ]);
-//         $res = [
-//             'status' => 'Success',
-//             'message' => 'SMS sent successfully.',
-//         ];
-//     } else {
-//         $res = [
-//             'status' => 'Failed',
-//             'message' => 'Failed to send SMS. Please try again later.',
-//         ];
-//     }
-
-//     return $res;
-
-// }
+// A commented-out Umeskia Softwares integration used to sit here. It was dead
+// code carrying live bearer tokens and endpoint URLs in the clear, which
+// is a credential in the repository whether or not anything executes it.
+// The working implementation is sendSMS() below, which uses HostPinnacle.
 
 
 // Function to send sms using hostpinnacle
