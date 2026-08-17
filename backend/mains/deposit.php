@@ -69,18 +69,53 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
         ];
     }
 
-    /**
-     * Success is a transactionId plus resultCode "0". This endpoint reports
-     * neither the `success` boolean the previous one did, nor an HTTP-level
-     * error -- an accepted push comes back as status PENDING, and the real
-     * outcome arrives later on the callback.
-     */
-    $transactionId = $inititate['transactionId'] ?? null;
-    $resultCode    = (string) ($inititate['resultCode'] ?? '');
-    $status        = strtoupper((string) ($inititate['status'] ?? ''));
+    // Always logged, not only on refusal. The response shape is not documented,
+    // and without this the only way to learn it is a failed customer payment.
+    error_log('[deposit] provider response: ' . substr(json_encode($inititate), 0, 500));
 
-    $accepted = $transactionId
-        && ($resultCode === '0' || in_array($status, ['PENDING', 'SUCCESS', 'PROCESSING'], true));
+    /**
+     * The provider wraps its payloads.
+     *
+     * Its balance endpoints answer {"success":true,"data":{...}}, so the
+     * top-up almost certainly nests the same way. Reading only the top level
+     * found no transactionId on a push that had in fact been accepted, and
+     * everything below followed from that.
+     */
+    $payload = is_array($inititate['data'] ?? null) ? $inititate['data'] : $inititate;
+
+    $transactionId = $payload['transactionId']
+        ?? $payload['transaction_id']
+        ?? $payload['id']
+        ?? $inititate['transactionId']
+        ?? null;
+
+    $resultCode = (string) ($payload['resultCode'] ?? $inititate['resultCode'] ?? '');
+    $status     = strtoupper((string) ($payload['status'] ?? $inititate['status'] ?? ''));
+    $success    = $inititate['success'] ?? $payload['success'] ?? null;
+
+    /**
+     * WHY THIS ACCEPTS ON THE TRANSACTION ID ALONE
+     * --------------------------------------------
+     * By the time the provider has issued an id, the STK push is already on
+     * its way to the customer's handset. Requiring resultCode "0" *as well*
+     * meant an unrecognised response produced no transactions row -- and then
+     * the customer paid, the callback arrived quoting an id we had never
+     * stored, and the callback correctly refused to credit a deposit it could
+     * not find. Money in, nothing credited, and nothing on file to reconcile
+     * from.
+     *
+     * A pending row for a push that never completed is visible in the admin
+     * panel and can be declined. A completed payment with no row is neither
+     * visible nor recoverable. So the id is enough, unless the provider has
+     * explicitly said it failed.
+     */
+    $explicitFailure = $success === false
+        || in_array($status, ['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'CANCELED', 'ERROR'], true)
+        || ($resultCode !== '' && $resultCode !== '0' && $status === '');
+
+    $accepted = $transactionId !== null
+        && $transactionId !== ''
+        && !$explicitFailure;
 
     if ($accepted) {
         $query->insert('transactions', [
@@ -107,7 +142,7 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
             ?? (is_array($inititate['error'] ?? null) ? ($inititate['error']['message'] ?? null) : ($inititate['error'] ?? null))
             ?? 'Transaction could not be initiated. Please try again.';
 
-        error_log('[deposit] STK push refused: ' . json_encode($inititate));
+        error_log('[deposit] STK push refused (no usable transaction id in the response above).');
 
         $res = [
             'status' => 'Failed',

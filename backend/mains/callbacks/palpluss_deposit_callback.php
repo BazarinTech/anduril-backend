@@ -25,23 +25,63 @@ $data = $fileGetContent->get_content();
     // $account = $data['result']['Phone'];
     
     /**
+     * ALWAYS log the delivered payload.
+     *
+     * A callback that cannot be parsed used to log only "carried no
+     * transaction reference", which says the parse failed but not what
+     * arrived -- so the one piece of evidence needed to fix it was the one
+     * thing not recorded. This is money arriving; the body is worth the log
+     * line.
+     */
+    error_log('[palpluss_deposit] payload: ' . substr(json_encode($data), 0, 800));
+
+    /**
      * The reference the callback quotes.
      *
-     * Deposits are keyed on the provider's own `transactionId` UUID, which is
-     * what the top-up API returns and what it should quote back. `transaction_id`
-     * is read first for that reason; `external_reference` is the field the
-     * older endpoint used and is still accepted.
+     * Read from every plausible envelope rather than one.
+     *
+     * This used to look only inside $data['transaction']. The provider wraps
+     * its other responses as {"success":true,"data":{...}}, so a callback
+     * shaped that way -- or a flat one -- found nothing, was rejected as
+     * "Missing reference", and the customer's payment was never credited.
+     * Guessing one envelope and failing closed on the rest is not a safe
+     * trade when the failure mode is lost money.
      */
-    $trackingID = $data['transaction']['transaction_id']
-        ?? $data['transaction']['transactionId']
-        ?? $data['transaction']['external_reference']
-        ?? '';
-    $reference = $data['transaction']['mpesa_receipt'] ?? '';
-    $status = $data['transaction']['status'] ?? '';
-    $account = $data['transaction']['phone_number'] ?? '';
+    $containers = array_filter([
+        $data['transaction'] ?? null,
+        $data['data'] ?? null,
+        $data['data']['transaction'] ?? null,
+        $data,
+    ], 'is_array');
+
+    /** First non-empty value for any of $keys, across every container. */
+    $pick = function (array $keys) use ($containers) {
+        foreach ($containers as $container) {
+            foreach ($keys as $key) {
+                if (isset($container[$key]) && $container[$key] !== '') {
+                    return $container[$key];
+                }
+            }
+        }
+
+        return '';
+    };
+
+    $trackingID = (string) $pick([
+        'transaction_id', 'transactionId', 'external_reference', 'externalReference', 'id',
+    ]);
+
+    $reference = (string) $pick([
+        'mpesa_receipt', 'mpesaReceipt', 'mpesaReceiptNumber', 'MpesaReceiptNumber',
+        'receipt', 'reference',
+    ]);
+
+    $status = (string) $pick(['status', 'transactionStatus', 'resultDesc']);
+
+    $account = (string) $pick(['phone_number', 'phoneNumber', 'phone', 'msisdn', 'account']);
 
     if ($trackingID === '') {
-        error_log('[palpluss_deposit] rejected: callback carried no transaction reference');
+        error_log('[palpluss_deposit] rejected: no transaction reference in the payload above');
         http_response_code(400);
         echo json_encode(['status' => 'error', 'message' => 'Missing reference']);
         exit;
