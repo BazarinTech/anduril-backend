@@ -1,4 +1,15 @@
 <?php
+/**
+ * FIRST: record that this endpoint was reached at all.
+ *
+ * Runs before every include and every check, so a request that is
+ * later rejected -- or that dies inside bootstrap -- still leaves a
+ * line saying it arrived. Without it, 'the provider never called' and
+ * 'the provider called and we threw it away' are indistinguishable.
+ */
+require_once __DIR__ . '/trace.php';
+callback_trace('payhero_b2c_callback');
+
 //get initiator
 include 'initiate.php';
 include 'verify.php';
