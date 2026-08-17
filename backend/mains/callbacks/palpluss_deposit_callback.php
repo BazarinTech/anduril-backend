@@ -78,9 +78,28 @@ $data = $fileGetContent->get_content();
         return '';
     };
 
+    /**
+     * THE TRANSACTION UUID IS THE REFERENCE.
+     *
+     * Palpluss keys a deposit on `transaction.id`, and that is the value
+     * deposit.php stores in `transactions.trackingID` when the STK push is
+     * accepted. It is the one identifier both sides agree on.
+     *
+     * `external_reference` is deliberately NOT read here any more. It used to
+     * be tried first, which is why a real payment went uncredited: for a
+     * WALLET_TOPUP_B2C the provider fills that field with its own composite
+     * value -- "WALLET_TOPUP_B2C:8d43cf3f-..." -- rather than echoing the
+     * reference we sent, so the lookup searched for something that was never
+     * in our table. It is still used, but as a *fallback against local_ref*
+     * below, because for an STK it does carry the merchant's own reference.
+     */
     $trackingID = (string) $pick([
-        'transaction_id', 'transactionId', 'external_reference', 'externalReference', 'id',
+        'id', 'transaction_id', 'transactionId',
     ]);
+
+    // Kept separate so it can be matched against our own reference, not
+    // mistaken for the provider's transaction id.
+    $externalRef = (string) $pick(['external_reference', 'externalReference']);
 
     $reference = (string) $pick([
         'mpesa_receipt', 'mpesaReceipt', 'mpesaReceiptNumber', 'MpesaReceiptNumber',
@@ -98,26 +117,44 @@ $data = $fileGetContent->get_content();
         exit;
     }
 
-    //get transaction details
-    $transactions = $query->select('transactions', '*', ['trackingID' => $trackingID, 'status' => "Pending"]);
-
     /**
-     * Fall back to our own reference.
+     * Look the deposit up by the transaction UUID, then by our own reference.
      *
-     * We send `accountReference` and `Idempotency-Key` as a value we generate,
-     * and store it in `local_ref`. If the provider echoes that back instead of
-     * its own UUID, matching on trackingID alone would find nothing and the
-     * deposit would sit Pending forever with the customer's money taken. This
-     * makes the lookup work either way, and says which path it took so the
-     * assumption can be checked against real traffic.
+     * Each attempt is one indexed lookup, and the cost of not finding the row
+     * is a customer whose money left their phone and never arrived. Trying the
+     * plausible references is cheaper than being wrong about which one the
+     * provider will quote.
      */
-    if (empty($transactions)) {
-        $transactions = $query->select('transactions', '*', ['local_ref' => $trackingID, 'status' => "Pending"]);
+    $attempts = [];
+
+    // 1. The provider's transaction UUID, which is what we store.
+    $transactions = $query->select('transactions', '*', ['trackingID' => $trackingID, 'status' => 'Pending']);
+    $attempts[] = "trackingID={$trackingID}";
+
+    // 2. Our own reference, if the provider echoed it back. For an STK the
+    //    external_reference field carries exactly what we sent as
+    //    accountReference; for a wallet top-up it carries their own value,
+    //    which simply will not match and costs one query to rule out.
+    if (empty($transactions) && $externalRef !== '') {
+        $transactions = $query->select('transactions', '*', ['local_ref' => $externalRef, 'status' => 'Pending']);
+        $attempts[] = "local_ref={$externalRef}";
 
         if (!empty($transactions)) {
-            error_log("[palpluss_deposit] matched {$trackingID} on local_ref, not transactionId");
+            error_log("[palpluss_deposit] matched on local_ref {$externalRef}, not the transaction id");
             // Key everything below on the row's own trackingID so the claim
             // and the status update address the right row.
+            $trackingID = $transactions[0]['trackingID'];
+        }
+    }
+
+    // 3. Some providers put the merchant reference in external_reference and
+    //    their own id nowhere else. One more indexed lookup.
+    if (empty($transactions) && $externalRef !== '') {
+        $transactions = $query->select('transactions', '*', ['trackingID' => $externalRef, 'status' => 'Pending']);
+        $attempts[] = "trackingID={$externalRef}";
+
+        if (!empty($transactions)) {
+            error_log("[palpluss_deposit] matched external_reference {$externalRef} against trackingID");
             $trackingID = $transactions[0]['trackingID'];
         }
     }
@@ -127,7 +164,24 @@ $data = $fileGetContent->get_content();
     // the "Undefined array key 0" warnings that filled the error log, because
     // $transactions[0] was being read before its existence was checked.
     if (empty($transactions)) {
-        error_log("[palpluss_deposit] no pending transaction for {$trackingID}; ignoring");
+        /**
+         * Say what was looked for AND what is actually on file.
+         *
+         * "no pending transaction for X" alone cannot be acted on -- it does
+         * not reveal whether the reference is wrong, the row was already
+         * settled, or the deposit was never recorded. The pending references
+         * are printed alongside so the mismatch is visible in one line
+         * instead of requiring a database session.
+         */
+        $pending = [];
+        foreach ($query->select('transactions', '*', ['type' => 'Deposit', 'status' => 'Pending']) as $row) {
+            $pending[] = $row['trackingID'] . ' (local_ref ' . $row['local_ref'] . ')';
+        }
+
+        error_log(
+            '[palpluss_deposit] no pending deposit matched. tried: ' . implode(', ', $attempts)
+            . ' | pending on file: ' . (empty($pending) ? 'none' : implode('; ', array_slice($pending, 0, 5)))
+        );
         echo json_encode(['status' => 'ok', 'message' => 'No pending transaction']);
         exit;
     }
