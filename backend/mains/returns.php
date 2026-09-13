@@ -11,7 +11,7 @@ $data = $fileGetContent->get_content();
 // Process investment income
 if (isset($data['userID']) && isset($data['orderID'])) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -22,7 +22,7 @@ if (isset($data['userID']) && isset($data['orderID'])) {
             exit;
         }
 
-        $orderID = $data['orderID'];
+        $orderID = request_str($data, 'orderID');
 
         /**
          * Phase 3.5 -- this was the easiest race in the system to exploit.

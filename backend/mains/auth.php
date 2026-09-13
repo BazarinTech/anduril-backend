@@ -11,15 +11,15 @@ if (isset($data)) {
     // raised "Undefined array key" warnings into the response body on every
     // incomplete call, which is both noise in the log and a way to break the
     // JSON contract if display_errors is ever on.
-    $phone = $data['phone'] ?? '';
-    $type = $data['type'] ?? '';
-    $password = $data['password'] ?? '';
+    $phone = request_str($data, 'phone');
+    $type = request_str($data, 'type');
+    $password = request_str($data, 'password', '', false);
 
     // Check if type of auth request is either login or register
     if ($type == 'register') {
-        $con_password = $data['confirmPassword'] ?? '';
-        $email = $data['email'] ?? '';
-        $name = $data['name'] ?? '';
+        $con_password = request_str($data, 'confirmPassword', '', false);
+        $email = request_str($data, 'email');
+        $name = request_str($data, 'name');
 
         /**
          * `upline` is the referrer's numeric user ID, and the column is INT.
@@ -40,7 +40,7 @@ if (isset($data)) {
          * dangling ID would put a broken link in the middle of that chain.
          */
         $upline = 0;
-        $uplineInput = trim((string) ($data['upline'] ?? ''));
+        $uplineInput = request_str($data, 'upline');
 
         if ($uplineInput !== '' && ctype_digit($uplineInput)) {
             $referrer = $query->select('users', '*', ['ID' => (int) $uplineInput]);

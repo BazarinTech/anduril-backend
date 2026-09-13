@@ -10,7 +10,7 @@ $data = $fileGetContent->get_content();
 // Process bonus 
 if (isset($data)) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -20,7 +20,7 @@ if (isset($data)) {
             ]);
             exit;
         }
-        $bonusID = $data['bonusID'];
+        $bonusID = request_str($data, 'bonusID');
         $bonus = $query->select('bonus', '*', ['ID' => $bonusID]);
         $bonus = $bonus[0] ?? null;
 

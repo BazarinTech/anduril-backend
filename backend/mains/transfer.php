@@ -25,7 +25,7 @@ function create_tracking_ID() {
 
 if (isset($data)) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -35,9 +35,39 @@ if (isset($data)) {
             ]);
             exit;
         }
-        $amount = $data['amount'];
-        $recipient = $data['recipient'];
-        $method = $data['method'];
+        /**
+         * Missing fields are a malformed request, not a crash.
+         *
+         * These were read directly, so a request without `method` raised an
+         * "Undefined array key" warning and then passed NULL into a NOT NULL
+         * column -- the transfer died at the INSERT, after the balances had
+         * already been adjusted inside the transaction. The rollback caught
+         * it and no money moved, but the caller got "Could not complete the
+         * transfer" for what is really "you left a field out".
+         */
+        $amount    = request_str($data, 'amount');
+        $recipient = request_str($data, 'recipient');
+
+        /**
+         * `method` records how the money moved. A transfer is wallet to
+         * wallet, so that is the only accurate value and the request does not
+         * need to supply it -- the column is VARCHAR(10), and 'wallet' fits.
+         * A caller may still name something else; anything longer is trimmed
+         * rather than allowed to fail the insert.
+         */
+        $method = substr(request_str($data, 'method'), 0, 10);
+
+        if ($method === '') {
+            $method = 'wallet';
+        }
+
+        if ($recipient === '') {
+            $fileGetContent->send_content([
+                'status'  => 'Failed',
+                'message' => 'Please enter the recipient username or email.',
+            ]);
+            exit;
+        }
 
         // Phase 3.6 -- a negative amount here used to move money the wrong way:
         // the sender's balance went up and the recipient's down.
@@ -87,7 +117,23 @@ if (isset($data)) {
         $recipientID = $recipient_details[0]['ID'];
 
         //check if the amount is greater than the minimum transfer
-        if ($amount < money($min)) {
+        /**
+         * Same fail-closed reading as withdraw.php: an unparseable
+         * `minTransfer` must not silently mean "no minimum".
+         */
+        $minTransfer = money_limit($min);
+
+        if ($minTransfer === null) {
+            error_log('[transfer] refusing: controls.minTransfer is not a usable number (' . var_export($min, true) . ')');
+
+            $fileGetContent->send_content([
+                'status' => 'Failed',
+                'message' => 'Transfers are temporarily unavailable. Please try again shortly.',
+            ]);
+            exit;
+        }
+
+        if ($amount < $minTransfer) {
             $fileGetContent->send_content([
                 'status' => 'Failed',
                 'message' => 'Minimum transfer is kes '.$min,

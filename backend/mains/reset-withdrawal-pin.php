@@ -46,7 +46,7 @@ use Firebase\JWT\SignatureInvalidException;
 
 $data = $fileGetContent->get_content();
 
-$type = $data['type'] ?? '';
+$type = request_str($data, 'type');
 
 if (!isset($data['userID'])) {
     $fileGetContent->send_content([
@@ -57,7 +57,7 @@ if (!isset($data['userID'])) {
 }
 
 try {
-    $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+    $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
     $userID  = $decoded->userID ?? $decoded->sub ?? null;
 
     if (!$userID) {
@@ -199,8 +199,8 @@ if ($type === 'request') {
 }
 
 if ($type === 'reset') {
-    $code   = trim((string) ($data['code'] ?? ''));
-    $newPin = (string) ($data['newPin'] ?? '');
+    $code   = request_str($data, 'code');
+    $newPin = request_str($data, 'newPin', '', false);
 
     if ($code === '') {
         $fileGetContent->send_content([

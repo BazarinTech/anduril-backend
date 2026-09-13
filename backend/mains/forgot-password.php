@@ -19,9 +19,9 @@ $data = $fileGetContent->get_content();
 
 if (isset($data['code']) && isset($data['phone']) && isset($data['newPassword'])) {
 
-    $code = $data['code'];
-    $phone = $data['phone'];
-    $newPassword = $data['newPassword'];
+    $code = request_str($data, 'code');
+    $phone = request_str($data, 'phone');
+    $newPassword = request_str($data, 'newPassword', '', false);
 
     if (strlen($newPassword) < 6) {
         $fileGetContent->send_content([

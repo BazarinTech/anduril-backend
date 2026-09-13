@@ -34,7 +34,7 @@ $data = $fileGetContent->get_content();
 
 if (isset($data['userID'])) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -380,6 +380,9 @@ if (isset($data['userID'])) {
             'average_return' => $total_return,
             'controls' => [
                 'minWithdrawal' => $control['minWith'],
+                // The app's recharge screen states a minimum deposit but was
+                // never sent one, so it had nothing to validate against.
+                'minDeposit' => $control['minDep'],
                 'minTransfer' => $control['minTransfer'],
                 'withFee' => $control['withFee'],
                 'tranFee' => $control['tranFee']

@@ -11,7 +11,7 @@ $data = $fileGetContent->get_content();
 // Process account data
 if (isset($data['userID']) && isset($data['type'])) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -21,7 +21,7 @@ if (isset($data['userID']) && isset($data['type'])) {
             ]);
             exit;
         }
-        $type = $data['type'];
+        $type = request_str($data, 'type');
 
         /**
          * Phase 2.3. The PIN is what stands between a stolen token and a
@@ -53,9 +53,9 @@ if (isset($data['userID']) && isset($data['type'])) {
         $hasPin     = $currentPin !== '';
 
         if ($type == 'create') {
-            $phone = $data['phone'];
-            $account_name = $data['accountName'];
-            $pin = (string) $data['pin'];
+            $phone = request_str($data, 'phone');
+            $account_name = request_str($data, 'accountName');
+            $pin = request_str($data, 'pin', '', false);
 
             if ($hasPin) {
                 // Already configured -- this is an update, and updates must
@@ -82,9 +82,9 @@ if (isset($data['userID']) && isset($data['type'])) {
                 ];
             }
         }elseif($type == 'update'){
-            $phone = $data['phone'];
-            $account_name = $data['accountName'];
-            $pin = (string) $data['pin'];
+            $phone = request_str($data, 'phone');
+            $account_name = request_str($data, 'accountName');
+            $pin = request_str($data, 'pin', '', false);
 
             if ($hasPin && password_verify($pin, $currentPin)) {
                 $update_withdraw = $query->update('wallets', [
@@ -106,8 +106,8 @@ if (isset($data['userID']) && isset($data['type'])) {
             }
 
         }elseif($type == 'update_pin'){
-            $pin    = (string) $data['pin'];
-            $oldPin = (string) ($data['oldPin'] ?? '');
+            $pin    = request_str($data, 'pin', '', false);
+            $oldPin = request_str($data, 'oldPin', '', false);
 
             if (!$hasPin) {
                 $response = [

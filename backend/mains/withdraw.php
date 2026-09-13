@@ -81,7 +81,7 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
 // The working implementation is mpesa_auto() below, which uses Palpluss.
 if (isset($data)) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -91,9 +91,20 @@ if (isset($data)) {
             ]);
             exit;
         }
-        $amount = $data['amount'];
-        $method = $data['method'];
-        $pin = $data['pin'];
+        $amount = request_str($data, 'amount');
+        // PINs are compared exactly, so they are not trimmed.
+        $pin = request_str($data, 'pin', '', false);
+
+        /**
+         * The method recorded is the rail the payout actually uses.
+         *
+         * This used to store whatever the client sent -- or NULL when it sent
+         * nothing, which failed the NOT NULL column. But every withdrawal is
+         * paid by mpesa_auto() through Palpluss M-Pesa, whatever was asked
+         * for, so a client-supplied value could only ever make the ledger say
+         * something untrue. It is no longer read from the request.
+         */
+        $method = 'mpesa';
 
         // Phase 3.6 -- validate before anything touches a balance.
         if (!is_valid_amount($amount)) {
@@ -141,8 +152,28 @@ if (isset($data)) {
         // check withdrawal pin (Phase 2.3 -- stored as a hash now)
         if($withdrawal_pin !== '' && password_verify((string) $pin, $withdrawal_pin)){
 
-            //check if the amount is greater than the minimum withdrawal
-            if ($amount < money($min)) {
+            /**
+             * The minimum, enforced fail-closed.
+             *
+             * This used to be `$amount < money($min)`, and money() answers 0.0
+             * for anything it cannot parse. A blank or malformed `minWith`
+             * therefore became "minimum is 0" and let every amount through,
+             * with nothing said anywhere -- the rule looked enforced and was
+             * not. An unreadable limit now stops the withdrawal instead.
+             */
+            $minWithdrawal = money_limit($min);
+
+            if ($minWithdrawal === null) {
+                error_log('[withdraw] refusing: controls.minWith is not a usable number (' . var_export($min, true) . ')');
+
+                $fileGetContent->send_content([
+                    'status' => 'Failed',
+                    'message' => 'Withdrawals are temporarily unavailable. Please try again shortly.',
+                ]);
+                exit;
+            }
+
+            if ($amount < $minWithdrawal) {
                 $fileGetContent->send_content([
                     'status' => 'Failed',
                     'message' => 'Minimum withdrawal is kes '.$min,

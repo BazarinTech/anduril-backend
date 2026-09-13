@@ -7,7 +7,7 @@ $data = $fileGetContent->get_content();
 
 // Process get status
 if (isset($data['trackingID'])) {
-    $trackingID = $data['trackingID'];
+    $trackingID = request_str($data, 'trackingID');
     $transaction = $query->select('transactions', '*', ['trackingID' => $trackingID]);
     if(count($transaction)){
         $status = $transaction[0]['status'];

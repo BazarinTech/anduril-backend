@@ -26,10 +26,10 @@ $data = $fileGetContent->get_content();
 if (isset($data)) {
 
     // Check type of verification action
-    $type = $data['type'] ?? '';
+    $type = request_str($data, 'type');
 
     if ($type === 'RequestPhoneVerification') {
-        $phoneNumber = $data['phone'] ?? '';
+        $phoneNumber = request_str($data, 'phone');
 
         if ($phoneNumber === '') {
             $response = [
@@ -46,8 +46,8 @@ if (isset($data)) {
         }
 
     } elseif ($type === 'VerifyPhone') {
-        $code = $data['code'] ?? '';
-        $phoneNumber = $data['phone'] ?? '';
+        $code = request_str($data, 'code');
+        $phoneNumber = request_str($data, 'phone');
 
         // Only a Pending code for this number can be verified. An already
         // verified or already used code is not a second ticket.

@@ -32,7 +32,7 @@ $data = $fileGetContent->get_content();
 // Process order investment
 if (isset($data['userID'])) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -43,8 +43,8 @@ if (isset($data['userID'])) {
             exit;
         }
         
-        $prodID = $data['prodID'];
-        $amount = $data['amount'];
+        $prodID = request_str($data, 'prodID');
+        $amount = request_str($data, 'amount');
 
         // Phase 3.6 -- reject anything that is not a positive number before it
         // reaches a wallet. "50abc" used to pass a `>= $min` comparison as 50.

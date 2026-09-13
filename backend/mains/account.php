@@ -11,7 +11,7 @@ $data = $fileGetContent->get_content();
 // Process account data
 if (isset($data['userID']) && isset($data['type'])) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -21,7 +21,7 @@ if (isset($data['userID']) && isset($data['type'])) {
             ]);
             exit;
         }
-        $type = $data['type'];
+        $type = request_str($data, 'type');
 
         if ($type == 'account') {
             /**
@@ -36,8 +36,8 @@ if (isset($data['userID']) && isset($data['type'])) {
              * "Account update failed!" for a request that worked perfectly.
              * Zero rows changed is success, not failure.
              */
-            $email = trim((string) ($data['email'] ?? ''));
-            $phone = trim((string) ($data['phone'] ?? ''));
+            $email = request_str($data, 'email');
+            $phone = request_str($data, 'phone');
 
             $changes = [];
 
@@ -84,9 +84,10 @@ if (isset($data['userID']) && isset($data['type'])) {
         }
 
         if ($type == 'password') {
-            $old_password = $data['oldPassword'];
-            $new_password = $data['newPassword'];
-            $con_password = $data['confirmPassword'];
+            // Not trimmed: a password with a trailing space is a different password.
+            $old_password = request_str($data, 'oldPassword', '', false);
+            $new_password = request_str($data, 'newPassword', '', false);
+            $con_password = request_str($data, 'confirmPassword', '', false);
             $user = $query->select('users', '*', ['ID' => $userID]);
             $password = $user[0]['passwrd'] ?? '';
             if (password_verify($old_password, $password)) {

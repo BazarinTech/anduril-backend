@@ -179,7 +179,7 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
 // process deposits
 if (isset($data)) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -189,9 +189,37 @@ if (isset($data)) {
             ]);
             exit;
         }
-        $amount = $data['amount'];
-        $account = $data['account'];
-        $method = $data['method'];
+        $amount = request_str($data, 'amount');
+        $account = request_str($data, 'account');
+
+        /**
+         * The method selects which rail runs, so it is an allowlist.
+         *
+         * `mpesa` starts an STK push; `binance` records a manual deposit for
+         * an admin to approve (admin/approve-deposits.php lists exactly those).
+         * The old test was `== 'mpesa'` with everything else falling into the
+         * manual branch -- so a typo, a missing field or any arbitrary string
+         * created a pending "deposit" under that string, and a missing one
+         * passed NULL to a NOT NULL column. Absent still means mpesa, the only
+         * method the app offers and the column's own default.
+         */
+        $method = request_choice($data, 'method', ['mpesa', 'binance'], 'mpesa');
+
+        if ($method === null) {
+            $fileGetContent->send_content([
+                'status'  => 'Failed',
+                'message' => 'Unsupported payment method.',
+            ]);
+            exit;
+        }
+
+        if ($method === 'mpesa' && $account === '') {
+            $fileGetContent->send_content([
+                'status'  => 'Failed',
+                'message' => 'Please enter the M-Pesa phone number to charge.',
+            ]);
+            exit;
+        }
         $trackingID = create_tracking_ID();
     
         // get transaction controls from database
@@ -232,8 +260,27 @@ if (isset($data)) {
         //     exit;
         // }
 
+        /**
+         * The minimum, enforced fail-closed.
+         *
+         * `money()` answers 0.0 for anything it cannot parse, so a blank or
+         * malformed `minDep` turned this into `$amount >= 0` -- true for every
+         * amount. That is how a KSH 1 deposit passed a stated KSH 400 floor.
+         */
+        $minDeposit = money_limit($min);
+
+        if ($minDeposit === null) {
+            error_log('[deposit] refusing: controls.minDep is not a usable number (' . var_export($min, true) . ')');
+
+            $fileGetContent->send_content([
+                'status'  => 'Failed',
+                'message' => 'Deposits are temporarily unavailable. Please try again shortly.',
+            ]);
+            exit;
+        }
+
         // check if the amount is greater than the minimum deposit
-        if ($amount >= money($min)) {
+        if ($amount >= $minDeposit) {
             
             if($method == 'mpesa'){
                 $response = mpesa_auto($query, $userID, $amount, $account, $curl, $trackingID);

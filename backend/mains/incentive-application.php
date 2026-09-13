@@ -19,7 +19,7 @@ if (isset($data['userID'])) {
           ]);
           exit;
         }
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -29,10 +29,43 @@ if (isset($data['userID'])) {
             ]);
             exit;
         }
-        $name = $data['name'];
-        $phone_number = $data['phone'];
-        $id_number = $data['idNumber'];
-        $incentiveID = $data['incentiveID'];
+        $name = request_str($data, 'name');
+        $phone_number = request_str($data, 'phone');
+        $id_number = request_str($data, 'idNumber');
+        $incentiveID = request_str($data, 'incentiveID');
+
+        /**
+         * All four land in NOT NULL columns of incentives_requests. Missing
+         * ones used to arrive as NULL and fail the INSERT -- after the
+         * duplicate check had already run -- with a database error instead of
+         * a message the applicant could act on. Lengths are checked against
+         * the columns for the same reason: strict mode rejects an overlong
+         * value rather than truncating it.
+         */
+        $limits = [
+            'your full name'   => [$name, 50],
+            'your phone number' => [$phone_number, 15],
+            'your ID number'   => [$id_number, 10],
+            'the incentive'    => [$incentiveID, 12],
+        ];
+
+        foreach ($limits as $label => [$value, $max]) {
+            if ($value === '') {
+                $fileGetContent->send_content([
+                    'status'  => 'Failed',
+                    'message' => 'Please provide ' . $label . '.',
+                ]);
+                exit;
+            }
+
+            if (strlen($value) > $max) {
+                $fileGetContent->send_content([
+                    'status'  => 'Failed',
+                    'message' => ucfirst($label) . ' is too long (maximum ' . $max . ' characters).',
+                ]);
+                exit;
+            }
+        }
 
         // Check if application already exists
         $existing_application = $query->select('incentives_requests', '*', ['userID' => $userID, 'incentiveID' => $incentiveID]);
@@ -71,6 +104,16 @@ if (isset($data['userID'])) {
         $fileGetContent->send_content([
             'status' => 'Error',
             'message' => 'Invalid token signature'
+        ]);
+    } catch (\UnexpectedValueException | \DomainException $e) {
+        // A malformed or unreadable token. php-jwt raises UnexpectedValueException
+        // for structural problems (expired and bad-signature are its
+        // subclasses, caught above) and DomainException when a segment is not
+        // valid base64/JSON. Without this catch both fell into the catch-all
+        // below and were reported as a failed submission.
+        $fileGetContent->send_content([
+            'status' => 'Error',
+            'message' => 'Invalid token'
         ]);
     } catch (\Throwable $e) {
     // Phase 5.6 -- this returned $e->getMessage() to the client as a 'debug'

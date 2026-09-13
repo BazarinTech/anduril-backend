@@ -11,7 +11,7 @@ $data = $fileGetContent->get_content();
 // Process coupon
 if (isset($data['userID']) && isset($data['code'])) {
     try {
-        $decoded = JWT::decode($data['userID'], new Key(JWT_SECRET, JWT_ALGO));
+        $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
         $userID = $decoded->userID ?? $decoded->sub ?? null;
 
         if (!$userID) {
@@ -22,7 +22,7 @@ if (isset($data['userID']) && isset($data['code'])) {
             exit;
         }
         // Compute coupon
-        $coupon_code = $data['code'];
+        $coupon_code = request_str($data, 'code');
         $coupon = $query->select('coupons', '*', ['code' => $coupon_code]);
         if(count($coupon) == 0){
             $response = [

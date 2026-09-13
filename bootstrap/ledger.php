@@ -198,6 +198,44 @@ if (!function_exists('money')) {
 }
 
 /**
+ * Read a configured monetary limit, or report that it cannot be read.
+ *
+ * money() answers 0.0 for anything non-numeric, which is the right default for
+ * a *balance* -- an unreadable balance is no money. It is the wrong default for
+ * a *limit*: "minimum withdrawal is 0" silently permits every amount, so a
+ * blank or malformed setting disables the rule it was meant to enforce, and
+ * does so invisibly.
+ *
+ * This returns null instead, so callers must decide what an unusable limit
+ * means. Every caller here treats it as "refuse", because a platform that
+ * cannot tell you its own minimum should not be moving money to begin with.
+ *
+ * A genuine 0 is preserved: an administrator may legitimately want no floor.
+ *
+ * @return float|null
+ */
+if (!function_exists('money_limit')) {
+    function money_limit($value)
+    {
+        if (is_bool($value) || is_array($value) || $value === null) {
+            return null;
+        }
+
+        $trimmed = trim((string) $value);
+
+        // is_numeric rejects '', ' ', 'Kes 200' and '200/-' -- all of which
+        // (float) would quietly turn into 0.0 or 200.0.
+        if ($trimmed === '' || !is_numeric($trimmed)) {
+            return null;
+        }
+
+        $amount = (float) $trimmed;
+
+        return is_finite($amount) && $amount >= 0 ? $amount : null;
+    }
+}
+
+/**
  * Format a money value for storage.
  *
  * Two decimal places, no thousands separator, no scientific notation -- the
