@@ -83,6 +83,64 @@ if (isset($_POST['update'])) {
     }
 }
 
+/**
+ * PLATFORM RESET
+ * --------------
+ * Removes every non-admin user with their wallets (withdrawal accounts
+ * included), transactions, orders and incentive applications. What is removed
+ * and kept is documented in lib/platform-reset.php.
+ *
+ * It cannot be undone, so it asks for three things a stray click or a forged
+ * request cannot supply:
+ *
+ *   permissions   both 'edit' and 'finance' -- it rewrites money records
+ *   password      the signed-in admin's own, re-entered. This is also what
+ *                 makes the form safe from cross-site submission: a page that
+ *                 tricks the browser into posting here does not know it.
+ *   phrase        typed out, so the button cannot be reached by habit
+ */
+require_once __DIR__ . '/../lib/platform-reset.php';
+
+const PLATFORM_RESET_PHRASE = 'RESET PLATFORM';
+
+$reset_error   = '';
+$reset_removed = null;
+
+if (isset($_POST['reset_platform'])) {
+    $phrase   = (string) ($_POST['confirm_phrase'] ?? '');
+    $password = (string) ($_POST['admin_password'] ?? '');
+
+    if (!admin_can($query, 'edit') || !admin_can($query, 'finance')) {
+        // Shown in the page banner: this admin never sees the dialog.
+        $error = "Resetting the platform needs both the 'edit' and 'finance' permissions.";
+    } elseif (trim($phrase) !== PLATFORM_RESET_PHRASE) {
+        $reset_error = 'Type ' . PLATFORM_RESET_PHRASE . ' exactly to confirm.';
+    } elseif ($password === '' || !password_verify($password, (string) $admin_pass)) {
+        $reset_error = 'That password is not correct.';
+    } else {
+        try {
+            $reset_removed = platform_reset_run($pdo, $adminID);
+
+            $summary = [];
+            foreach ($reset_removed as $table => $step) {
+                $summary[] = $table . '=' . $step['count'];
+            }
+
+            // There is no undo, so leave a record of who did it and what went.
+            error_log('[platform-reset] admin userID ' . $adminID . ' (' . $admin_email . ') reset the platform: ' . implode(', ', $summary));
+
+            $msg = 'Platform reset. Removed ' . number_format($reset_removed['users']['count']) . ' user accounts and their records.';
+        } catch (\Throwable $e) {
+            error_log('[platform-reset] failed for admin userID ' . $adminID . ': ' . $e->getMessage());
+            $reset_error = 'The reset failed and nothing was removed. Please try again.';
+        }
+    }
+}
+
+// Counted after any reset above, so the card shows what is left.
+$reset_preview = platform_reset_preview($pdo);
+$reset_allowed = admin_can($query, 'edit') && admin_can($query, 'finance');
+
 $claim_settings = claim_settings($query);
 $claim_state    = claim_window($claim_settings);
 ?>
@@ -112,6 +170,80 @@ $claim_state    = claim_window($claim_settings);
 
   <script type="module" crossorigin src="assets/main-0ff05731.js"></script>
   <link rel="stylesheet" href="assets/css/main.css">
+  <!-- Modal, field and button styles for the reset dialog. -->
+  <link rel="stylesheet" href="assets/css/data-table.css">
+  <style>
+      [x-cloak] { display: none !important; }
+
+      .pc-danger {
+          border: 1px solid rgb(239 68 68 / 0.45);
+      }
+      .pc-danger__head {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 1rem;
+      }
+      .pc-danger__title {
+          font-size: 1rem;
+          font-weight: 600;
+          color: var(--dt-danger);
+      }
+      .pc-danger__text {
+          margin-top: 0.25rem;
+          max-width: 42rem;
+          font-size: 0.875rem;
+          color: var(--dt-text-muted);
+      }
+      .pc-counts {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+          gap: 0.75rem;
+          margin-top: 1rem;
+      }
+      .pc-count {
+          padding: 0.75rem;
+          border: 1px dashed var(--dt-border);
+          border-radius: 0.375rem;
+      }
+      .pc-count__value {
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: var(--dt-text);
+          font-variant-numeric: tabular-nums;
+      }
+      .pc-count__label {
+          font-size: 0.75rem;
+          color: var(--dt-text-muted);
+      }
+      .pc-kept {
+          margin-top: 0.75rem;
+          font-size: 0.8125rem;
+          color: var(--dt-text-muted);
+      }
+      .dt-btn--danger {
+          background-color: var(--dt-danger);
+          border-color: var(--dt-danger);
+          color: #ffffff;
+      }
+      .dt-btn--danger:hover { background-color: rgb(239 68 68 / 0.85); border-color: rgb(239 68 68 / 0.85); }
+      .dt-btn--danger:disabled { opacity: 0.5; cursor: not-allowed; }
+      .pc-reset-body { grid-template-columns: 1fr !important; }
+      .pc-reset-list {
+          margin: 0.25rem 0 0;
+          padding-left: 1.1rem;
+          list-style: disc;
+          font-size: 0.875rem;
+          color: var(--dt-text);
+      }
+      .pc-reset-list li + li { margin-top: 0.2rem; }
+      .pc-phrase {
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+      }
+  </style>
 </head>
 
 <body x-data="main" x-init="$store.app.hasCreative = window.location.href.includes('creative.html') , $store.app.hasdetached = window.location.href.includes('detached.html')" :class="[ $store.app.sidebar ? 'toggle-sidebar' : '', $store.app.fullscreen ? 'full' : '' , $store.app.hasCreative ? 'detached ' : '' , $store.app.hasdetached ? 'detached detached-simple ' : '' , $store.app.layout  ]" class="relative overflow-x-hidden text-[15px] antialiased font-normal text-black font-primary dark:text-white vertical " x-data="modals">
@@ -262,6 +394,120 @@ $claim_state    = claim_window($claim_settings);
                                      never handled -- the handler had been commented out -- so the button
                                      did nothing at all. What it was meant to do is now the claim window
                                      above, which needs no button. */ ?>
+                        </div>
+
+                        <!-- ============ Danger zone: platform reset ============ -->
+                        <?php
+                            $reset_count = function ($table) use ($reset_preview) {
+                                return number_format($reset_preview['counts'][$table]['count'] ?? 0);
+                            };
+                        ?>
+                        <div class="card pc-danger"
+                             x-data="{ open: <?= $reset_error ? 'true' : 'false' ?>, phrase: '', phraseRequired: <?= htmlspecialchars(json_encode(PLATFORM_RESET_PHRASE), ENT_QUOTES, 'UTF-8') ?> }">
+                            <div class="pc-danger__head">
+                                <div>
+                                    <h2 class="pc-danger__title">Reset platform</h2>
+                                    <p class="pc-danger__text">
+                                        Permanently removes every user account except admins, together with
+                                        their wallets, withdrawal accounts, transactions, orders and incentive
+                                        applications. Products, bonuses, coupons, incentives and these settings
+                                        are kept. This cannot be undone &mdash; take a database backup first.
+                                    </p>
+                                </div>
+                                <?php if ($reset_preview !== null): ?>
+                                    <button type="button" class="dt-btn dt-btn--danger" @click="open = true; phrase = ''"
+                                            <?= $reset_allowed ? '' : 'disabled title="Needs the edit and finance permissions"' ?>>
+                                        Reset platform&hellip;
+                                    </button>
+                                <?php endif; ?>
+                            </div>
+
+                            <?php if ($reset_preview === null): ?>
+                                <p class="pc-kept">No admin accounts were found, so a reset is not available.</p>
+                            <?php else: ?>
+                                <div class="pc-counts">
+                                    <div class="pc-count">
+                                        <div class="pc-count__value"><?= $reset_count('users') ?></div>
+                                        <div class="pc-count__label">User accounts</div>
+                                    </div>
+                                    <div class="pc-count">
+                                        <div class="pc-count__value"><?= $reset_count('wallets') ?></div>
+                                        <div class="pc-count__label">Wallets</div>
+                                    </div>
+                                    <div class="pc-count">
+                                        <div class="pc-count__value"><?= number_format($reset_preview['withdrawal_accounts']) ?></div>
+                                        <div class="pc-count__label">Withdrawal accounts</div>
+                                    </div>
+                                    <div class="pc-count">
+                                        <div class="pc-count__value"><?= $reset_count('transactions') ?></div>
+                                        <div class="pc-count__label">Transactions</div>
+                                    </div>
+                                    <div class="pc-count">
+                                        <div class="pc-count__value"><?= $reset_count('orders') ?></div>
+                                        <div class="pc-count__label">Orders</div>
+                                    </div>
+                                    <div class="pc-count">
+                                        <div class="pc-count__value"><?= $reset_count('incentives_requests') ?></div>
+                                        <div class="pc-count__label">Incentive applications</div>
+                                    </div>
+                                </div>
+                                <p class="pc-kept">
+                                    Kept: <?= number_format($reset_preview['admins_kept']) ?> admin
+                                    account<?= $reset_preview['admins_kept'] === 1 ? '' : 's' ?>, including their own wallets and history.
+                                </p>
+
+                                <?php if ($reset_allowed): ?>
+                                <div class="dt-modal" x-show="open" x-cloak @keydown.escape.window="open = false" @click.self="open = false"
+                                     role="dialog" aria-modal="true" aria-labelledby="pc-reset-title">
+                                    <div class="dt-modal__panel">
+                                        <div class="dt-modal__head">
+                                            <div>
+                                                <div class="dt-modal__title" id="pc-reset-title">Reset the platform?</div>
+                                                <div class="dt-modal__subtitle">This permanently deletes data and cannot be undone.</div>
+                                            </div>
+                                            <button type="button" class="dt-modal__close" @click="open = false" aria-label="Close">&times;</button>
+                                        </div>
+
+                                        <form action="platform-control" method="post" autocomplete="off">
+                                            <div class="dt-modal__body pc-reset-body">
+                                                <?php if ($reset_error): ?>
+                                                    <div class="dt-alert dt-alert--danger"><?= htmlspecialchars($reset_error, ENT_QUOTES, 'UTF-8') ?></div>
+                                                <?php endif; ?>
+
+                                                <div>
+                                                    <div class="dt-field"><label>This will delete</label></div>
+                                                    <ul class="pc-reset-list">
+                                                        <li><?= $reset_count('users') ?> user accounts</li>
+                                                        <li><?= $reset_count('wallets') ?> wallets, with <?= number_format($reset_preview['withdrawal_accounts']) ?> withdrawal accounts</li>
+                                                        <li><?= $reset_count('transactions') ?> transactions, including pending deposits and withdrawals</li>
+                                                        <li><?= $reset_count('orders') ?> orders</li>
+                                                        <li><?= $reset_count('incentives_requests') ?> incentive applications</li>
+                                                    </ul>
+                                                </div>
+
+                                                <div class="dt-field">
+                                                    <label for="pc-reset-phrase">Type <span class="pc-phrase"><?= htmlspecialchars(PLATFORM_RESET_PHRASE, ENT_QUOTES, 'UTF-8') ?></span> to confirm</label>
+                                                    <input id="pc-reset-phrase" type="text" name="confirm_phrase" x-model="phrase" spellcheck="false" required>
+                                                </div>
+
+                                                <div class="dt-field">
+                                                    <label for="pc-reset-password">Your admin password</label>
+                                                    <input id="pc-reset-password" type="password" name="admin_password" autocomplete="current-password" required>
+                                                </div>
+                                            </div>
+
+                                            <div class="dt-modal__foot">
+                                                <button type="button" class="dt-btn" @click="open = false">Cancel</button>
+                                                <button type="submit" name="reset_platform" value="1" class="dt-btn dt-btn--danger"
+                                                        :disabled="phrase.trim() !== phraseRequired">
+                                                    Delete everything and reset
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

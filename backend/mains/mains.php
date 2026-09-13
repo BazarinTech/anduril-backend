@@ -48,6 +48,17 @@ if (isset($data['userID'])) {
 
         // Get user details and wallets
         $users = $query->select('users', '*', ['ID' => $userID]);
+
+        // A token outlives its account when a user is deleted or the platform
+        // is reset. Every line below assumes the row exists.
+        if (empty($users)) {
+            $fileGetContent->send_content([
+                'status' => 'Error',
+                'message' => 'Account not found'
+            ]);
+            exit;
+        }
+
         $uplineID = $users[0]['upline'];
         $uplineDetails = $query->select('users', '*', ['ID' => $uplineID]);
         $uplineCount = count($uplineDetails);
