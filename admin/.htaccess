@@ -29,12 +29,31 @@
 </IfModule>
 <IfModule mod_rewrite.c>
   RewriteEngine on
+  # /admin with no trailing slash: serve index.php (which redirects to the
+  # login or dashboard) directly. Left to mod_dir, Apache would first answer
+  # 301 to "http://host/admin/" -- the http scheme, because TLS ends at the
+  # proxy -- sending visitors through an unencrypted hop.
+  #
+  # mod_rewrite ignores .htaccess rules for a directory URL without the slash
+  # unless AllowNoSlash is set, and then matches against the full filesystem
+  # path rather than an empty string -- hence conditions instead of ^$.
+  # Only a directory that has its own index.php is rewritten, so /admin/assets
+  # and /admin/uploads still answer 403.
+  RewriteOptions AllowNoSlash
+  RewriteCond %{REQUEST_URI} !/$
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteCond %{REQUEST_FILENAME}/index.php -f
+  RewriteRule ^ %{REQUEST_URI}/index.php [L]
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteCond %{REQUEST_FILENAME}\.php -f
   RewriteRule ^([^/]+)/?$ $1.php [L]
 </IfModule>
 # END cPanel-generated php ini directives, do not edit
 
+# See the RewriteRule ^$ note above.
+<IfModule mod_dir.c>
+  DirectorySlash Off
+</IfModule>
 
 # php -- BEGIN cPanel-generated handler, do not edit
 # Set the “ea-php81” package as the default “PHP” programming language.
