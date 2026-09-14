@@ -103,7 +103,8 @@ CREATE TABLE IF NOT EXISTS wallets (
     -- used to zero that column; it now rolls over on the first credit of a
     -- new period, so nothing has to run at midnight for it to read correctly.
     income_period      DATE        NULL     DEFAULT NULL,
-    level              VARCHAR(20) NOT NULL DEFAULT 'lvl1',
+    -- 50 wide to match incentives.level, which approval copies here (migration 005).
+    level              VARCHAR(50) NOT NULL DEFAULT 'lvl1',
     withdrawal_account VARCHAR(15)  NOT NULL DEFAULT '',
     withdrawal_name    VARCHAR(50)  NOT NULL DEFAULT '',
     -- Holds a password_hash() digest, not the four digits the user types.
@@ -278,12 +279,14 @@ CREATE TABLE IF NOT EXISTS coupons (
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS incentives (
     ID        INT AUTO_INCREMENT PRIMARY KEY,
-    name      VARCHAR(20)  NOT NULL,
+    -- Widened from 20/10/10 by migration 005: longer values were a strict-mode
+    -- error, which crashed the admin Add form.
+    name      VARCHAR(100) NOT NULL,
     referrals INT          NOT NULL,
-    salary    VARCHAR(10)  NOT NULL,
+    salary    VARCHAR(20)  NOT NULL,
     date      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status    VARCHAR(10)  NOT NULL DEFAULT 'Active',
-    level     VARCHAR(10)  NOT NULL,
+    level     VARCHAR(50)  NOT NULL,
     bonusItem VARCHAR(255) NOT NULL DEFAULT '',
     KEY idx_incentives_status (status)
 ) ENGINE=InnoDB;

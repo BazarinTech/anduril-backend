@@ -1,22 +1,36 @@
 <?php
 include 'initiate.php';
-$data = $fileGetContent->get_content();
+require_once __DIR__ . '/../includes/field-rules.php';
 
-$id = intval($data['id']);
-$field = $data['field'];
-$value = $data['value'];
+/**
+ * An admin may not change their own permissions or status.
+ *
+ * Without this, any admin holding [edit] could grant themselves [finance] and
+ * [add] from the Admins table in one click -- and could equally remove their
+ * own [edit] or deactivate themselves by accident, with nobody left able to
+ * put it back. Changes to one admin now always come from another, and nobody
+ * can grant a permission they do not hold. An admin who holds something the
+ * acting admin lacks cannot have their permissions or status changed by them
+ * at all, so a lesser admin cannot strip or deactivate a fuller one.
+ * Field rules: admin/includes/field-rules.php.
+ */
+admin_update_action($query, $fileGetContent, 'admins', function ($field, $value, $row) use ($query) {
+    $self = (int) ($row['userID'] ?? 0) === (int) ($_SESSION['userID'] ?? -1);
 
-// Sanitize field names to prevent SQL injection
-$allowedFields = ["email",  "status", "name", "roles", "permissions", "phone"];
-if (!in_array($field, $allowedFields, true)) {
-    http_response_code(400);
-    $fileGetContent->send_content(["success" => false, "message" => "Invalid field"]);
-    exit;
-}
+    if ($self && in_array($field, ['permissions', 'status'], true)) {
+        return 'You cannot change your own ' . $field . '. Ask another admin to do it.';
+    }
 
-// Update query
-$update = $query->update('admins', [$field => $value], ['ID' => $id]);
+    // An admin holding a permission you lack is out of reach: removing their
+    // [edit] would leave them unable to undo it, and deactivating them is as
+    // consequential as stripping their rights.
+    if (in_array($field, ['permissions', 'status'], true) && admin_outranks($query, $row['permissions'] ?? '')) {
+        return 'You cannot change the ' . $field . ' of an admin who has permissions you do not.';
+    }
 
-$response = ["success" => true, "message" => 'updated succefully'];
+    if ($field === 'permissions') {
+        return admin_grant_problem($query, $value, $row['permissions'] ?? '');
+    }
 
-$fileGetContent->send_content($response);
+    return null;
+});

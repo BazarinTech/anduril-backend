@@ -1,6 +1,7 @@
 <?php
 include 'includes/main.php';
 require_once __DIR__ . '/../lib/storage.php';
+require_once __DIR__ . '/includes/field-rules.php';
 
 /**
  * Product images no longer go to `uploads/` on this machine's disk. They go
@@ -14,16 +15,50 @@ require_once __DIR__ . '/../lib/storage.php';
 $error = '';
 $msg = '';
 
+$form = ['name' => '', 'max' => '', 'return' => '', 'description' => '', 'riskLevel' => '', 'duration' => '', 'tier' => '', 'limit' => ''];
+
 if (isset($_POST['submit'])) {
-    $name        = $_POST['name'];
-    $max         = $_POST['max'];
-    $min         = 0;
-    $return      = $_POST['return'];
-    $description = $_POST['description'];
-    $riskLevel   = $_POST['riskLevel'];
-    $duration    = $_POST['duration'];
-    $tier        = $_POST['tier'];
-    $limit       = $_POST['limit'];
+    foreach (array_keys($form) as $field) {
+        $form[$field] = admin_form_input($field);
+    }
+
+    if (!$isAdd) {
+        $error = "Your admin account does not have the 'add' permission.";
+        goto render_page;
+    }
+
+    /**
+     * Validated before the image is touched. The columns are narrow (tier is
+     * 20 characters, prices 10) and MySQL is in strict mode, so a bad value
+     * used to throw out of the INSERT with a 500 -- after the image had
+     * already been resized and uploaded to the bucket, leaving it orphaned.
+     */
+    [$values, $problem] = admin_validate_form($query, 'products', [
+        'name'        => $form['name'],
+        'max'         => $form['max'],
+        'min'         => '0',
+        'returns'     => $form['return'],
+        'description' => $form['description'],
+        'riskLevel'   => $form['riskLevel'],
+        'duration'    => $form['duration'],
+        'tier'        => $form['tier'],
+        'order_limit' => $form['limit'],
+    ]);
+
+    if ($problem !== null) {
+        $error = $problem;
+        goto render_page;
+    }
+
+    $name        = $values['name'];
+    $max         = $values['max'];
+    $min         = $values['min'];
+    $return      = $values['returns'];
+    $description = $values['description'];
+    $riskLevel   = $values['riskLevel'];
+    $duration    = $values['duration'];
+    $tier        = $values['tier'];
+    $limit       = $values['order_limit'];
 
     // File upload handling
     if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
@@ -285,47 +320,50 @@ render_page:
                         <li class="text-xs dark:text-white/80">commodities controll</li>
                         <li class="text-xl font-semibold text-slate-800 dark:text-slate-100">Products</li>
                     </ul>
-                    <div x-data="modals">
+                    <div x-data="modals(<?= $error !== '' && isset($_POST['submit']) && $isAdd ? 'true' : 'false' ?>)">
                         <div class="flex items-center justify-center">
                             <button type="button" class="btn <?= $isAdd ? '' : 'hidden' ?> bg-purple border border-purple rounded-md text-white transition-all duration-300 hover:bg-purple/[0.85] hover:border-purple/[0.85]" @click="toggle">Add new</button>
                         </div>
-                        <form action="products.php" method="POST" enctype="multipart/form-data" class="fixed inset-0 bg-black/80 z-[99999] hidden overflow-y-auto dark:bg-dark/90" :class="open && '!block'">
+                        <form action="products" method="POST" enctype="multipart/form-data" class="fixed inset-0 bg-black/80 z-[99999] hidden overflow-y-auto dark:bg-dark/90" :class="open && '!block'">
                             <div class="flex items-start justify-center min-h-screen px-4" @click.self="open = false">
                                 <div x-show="open" x-transition x-transition.duration.300 class="relative w-full max-w-lg p-0 my-8 overflow-hidden bg-white border rounded-lg border-slate-200 dark:bg-darklight dark:border-darkborder">
                                     <div class="flex items-center justify-between px-5 py-3 bg-white border-b border-slate-200 dark:bg-darklight dark:border-darkborder">
-                                        <h5 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Add Products</h5>
+                                        <h5 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Add Product</h5>
                                         <button type="button" class="text-muted hover:text-black dark:hover:text-white" @click="toggle" x-on:click="open = false">
                                             ✖
                                         </button>
                                     </div>
                                     <div class="p-5 space-y-4">
+                                        <?php if ($error !== '' && isset($_POST['submit']) && $isAdd): ?>
+                                            <p class="bg-danger/20 text-danger text-center rounded-lg py-2 px-2"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?> Choose the image again before saving.</p>
+                                        <?php endif; ?>
                                         <div class="space-y-1">
                                             <label>Product Name</label>
-                                            <input type="text" name="name" class="form-input h-14" placeholder="name" required>
+                                            <input type="text" name="name" class="form-input h-14" placeholder="name" maxlength="255" value="<?= htmlspecialchars($form['name'], ENT_QUOTES, 'UTF-8') ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Product Price</label>
-                                            <input name="max" type="number" class="form-input h-14" placeholder="Max" required>
+                                            <input name="max" type="number" min="0" step="0.01" class="form-input h-14" placeholder="Price" value="<?= htmlspecialchars($form['max'], ENT_QUOTES, 'UTF-8') ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Risk Level</label>
-                                            <input name="riskLevel" type="number" class="form-input h-14" placeholder="Risk Level" required>
+                                            <input name="riskLevel" type="number" min="0" max="100" step="1" class="form-input h-14" placeholder="Risk Level" value="<?= htmlspecialchars($form['riskLevel'], ENT_QUOTES, 'UTF-8') ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Product Return(%)</label>
-                                            <input name="return" type="number" class="form-input h-14" placeholder="Return" required>
+                                            <input name="return" type="number" min="0" step="0.01" class="form-input h-14" placeholder="Return" value="<?= htmlspecialchars($form['return'], ENT_QUOTES, 'UTF-8') ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Duration(days)</label>
-                                            <input name="duration" type="number" class="form-input h-14" placeholder="Duration" required>
+                                            <input name="duration" type="number" min="1" step="1" class="form-input h-14" placeholder="Duration" value="<?= htmlspecialchars($form['duration'], ENT_QUOTES, 'UTF-8') ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Tier</label>
-                                            <input name="tier" type="text" class="form-input h-14" placeholder="Tier" required>
+                                            <input name="tier" type="text" class="form-input h-14" placeholder="Tier" maxlength="20" value="<?= htmlspecialchars($form['tier'], ENT_QUOTES, 'UTF-8') ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Order Limit</label>
-                                            <input name="limit" type="number" class="form-input h-14" placeholder="Tier" required>
+                                            <input name="limit" type="number" min="0" step="1" class="form-input h-14" placeholder="Order limit" value="<?= htmlspecialchars($form['limit'], ENT_QUOTES, 'UTF-8') ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Product image</label>
@@ -333,7 +371,7 @@ render_page:
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Description</label>
-                                            <textarea name="description" class="form-input h-14" placeholder="Describe here..." required></textarea>
+                                            <textarea name="description" class="form-input h-14" placeholder="Describe here..." maxlength="255" required><?= htmlspecialchars($form['description'], ENT_QUOTES, 'UTF-8') ?></textarea>
                                         </div>
                                         <div class="flex items-center justify-end gap-4">
                                             <button type="button" class="btn text-danger border-danger hover:bg-danger hover:text-white" @click="toggle">Discard</button>

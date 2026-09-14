@@ -1,18 +1,60 @@
 <?php 
 include 'includes/main.php';
+require_once __DIR__ . '/includes/field-rules.php';
+
 $error = '';
 $msg = '';
+
+// What the admin typed, so a rejected form comes back filled in rather than
+// empty.
+$form = ['name' => '', 'salary' => '', 'referrals' => '', 'level' => ''];
+
 if (isset($_POST['submit'])) {
-    $name= $_POST['name'];
-    $salary = $_POST['salary'];
-    $referrals = $_POST['referrals'];
-    $level = $_POST['level'];
-    
+    foreach (array_keys($form) as $field) {
+        $form[$field] = admin_form_input($field);
+    }
 
-    $insert = $query->insert('incentives', ['name' => $name, 'salary' => $salary, 'referrals' => $referrals, 'level' => $level]);
+    // The Add button is hidden without 'add', but the form handler never
+    // checked it, so the permission was cosmetic.
+    if (!$isAdd) {
+        $error = "Your admin account does not have the 'add' permission.";
+    } else {
+        /**
+         * Validated before the INSERT. The columns are narrow and MySQL is in
+         * strict mode, so a name or level longer than its column used to throw
+         * straight out of the insert and the page answered with a 500 -- which
+         * is why a short first incentive saved and a longer second one did not.
+         */
+        [$values, $problem] = admin_validate_form($query, 'incentives', $form);
+        $error = (string) $problem;
 
+        if ($error === '') {
+            try {
+                $query->insert('incentives', $values);
 
+                /**
+                 * Redirect rather than render. main.php loaded $incentives before
+                 * this insert ran, so rendering now would leave the new record out
+                 * of the table -- and refreshing a POST response submits the form
+                 * again, creating a duplicate.
+                 */
+                header('Location: incentives?added=1');
+                exit;
+            } catch (\Throwable $e) {
+                error_log('[admin/incentives] insert failed: ' . $e->getMessage());
+                $error = 'Could not save the incentive. Please try again.';
+            }
+        }
+    }
 }
+
+if ($error === '' && isset($_GET['added'])) {
+    $msg = 'Incentive added.';
+}
+
+$esc = function ($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+};
 ?>
 <!DOCTYPE html>
 <html lang="en"  :dir="$store.app.direction" x-data="{ direction: $store.app.direction || 'ltr' }" x-bind:dir="direction" class="group/item" :data-mode="$store.app.mode" :data-sidebar="$store.app.sidebarMode">
@@ -76,35 +118,38 @@ if (isset($_POST['submit'])) {
                         <li class="text-xs dark:text-white/80">commodities controll</li>
                         <li class="text-xl font-semibold text-slate-800 dark:text-slate-100">Incentives</li>
                     </ul>
-                    <div x-data="modals">
+                    <div x-data="modals(<?= $error !== '' && isset($_POST['submit']) && $isAdd ? 'true' : 'false' ?>)">
                         <div class="flex items-center justify-center">
                             <button type="button" class="btn <?= $isAdd ? '' : 'hidden' ?> bg-purple border border-purple rounded-md text-white transition-all duration-300 hover:bg-purple/[0.85] hover:border-purple/[0.85]" @click="toggle">Add new</button>
                         </div>
-                        <form action="incentives.php" method="POST" enctype="multipart/form-data" class="fixed inset-0 bg-black/80 z-[99999] hidden overflow-y-auto dark:bg-dark/90" :class="open && '!block'">
+                        <form action="incentives" method="POST" class="fixed inset-0 bg-black/80 z-[99999] hidden overflow-y-auto dark:bg-dark/90" :class="open && '!block'">
                             <div class="flex items-start justify-center min-h-screen px-4" @click.self="open = false">
                                 <div x-show="open" x-transition x-transition.duration.300 class="relative w-full max-w-lg p-0 my-8 overflow-hidden bg-white border rounded-lg border-slate-200 dark:bg-darklight dark:border-darkborder">
                                     <div class="flex items-center justify-between px-5 py-3 bg-white border-b border-slate-200 dark:bg-darklight dark:border-darkborder">
-                                        <h5 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Add Products</h5>
+                                        <h5 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Add Incentive</h5>
                                         <button type="button" class="text-muted hover:text-black dark:hover:text-white" @click="toggle" x-on:click="open = false">
                                             ✖
                                         </button>
                                     </div>
                                     <div class="p-5 space-y-4">
+                                        <?php if ($error !== '' && isset($_POST['submit'])): ?>
+                                            <p class="bg-danger/20 text-danger text-center rounded-lg py-2 px-2"><?= $esc($error) ?></p>
+                                        <?php endif; ?>
                                         <div class="space-y-1">
                                             <label>Incentive Name</label>
-                                            <input type="text" name="name" class="form-input h-14" placeholder="name" required>
+                                            <input type="text" name="name" class="form-input h-14" placeholder="e.g. Silver Ambassador" maxlength="100" value="<?= $esc($form['name']) ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Salary</label>
-                                            <input name="salary" type="number" class="form-input h-14" placeholder="Salary" required>
+                                            <input name="salary" type="number" min="0" step="0.01" class="form-input h-14" placeholder="Salary" value="<?= $esc($form['salary']) ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Referrals</label>
-                                            <input name="referrals" type="number" class="form-input h-14" placeholder="Referrals" required>
+                                            <input name="referrals" type="number" min="0" max="1000000" step="1" class="form-input h-14" placeholder="Referrals" value="<?= $esc($form['referrals']) ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Level</label>
-                                            <input name="level" type="text" class="form-input h-14" placeholder="Level" required>
+                                            <input name="level" type="text" class="form-input h-14" placeholder="e.g. lvl2" maxlength="50" value="<?= $esc($form['level']) ?>" required>
                                         </div>
                                         <div class="flex items-center justify-end gap-4">
                                             <button type="button" class="btn text-danger border-danger hover:bg-danger hover:text-white" @click="toggle">Discard</button>
@@ -120,7 +165,12 @@ if (isset($_POST['submit'])) {
                 <!-- Start All Card -->
                 <div class="flex flex-col gap-4 min-h-[calc(100vh-212px)]">
                     <div class="grid grid-cols-1 gap-4">
-                        
+                        <?php if ($msg || ($error && !$isAdd)): ?>
+                            <div class="card">
+                                <p class="<?= $msg ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger' ?> text-center rounded-lg py-2 px-2"><?= $esc($msg ?: $error) ?></p>
+                            </div>
+                        <?php endif; ?>
+
                         <div class="card">
                         <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Incentives Records</h2>
                         

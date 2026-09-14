@@ -1,24 +1,8 @@
 <?php
 include 'initiate.php';
-$data = $fileGetContent->get_content();
+require_once __DIR__ . '/../includes/field-rules.php';
 
-$id = intval($data['id']);
-$field = $data['field'];
-$value = $data['value'];
-
-// Sanitize field names to prevent SQL injection
-// Phase 4.11 -- `email` is the owning user's address, joined in for display.
-// It is not a column here, and the field is now read-only in the UI.
-$allowedFields = ["status", "type", "fees", "description", "account", "amount", "method"];
-if (!in_array($field, $allowedFields, true)) {
-    http_response_code(400);
-    $fileGetContent->send_content(["success" => false, "message" => "Invalid field"]);
-    exit;
-}
-
-// Update query
-$update = $query->update('transactions', [$field => $value], ['ID' => $id]);
-
-$response = ["success" => true, "message" => 'updated succefully'];
-
-$fileGetContent->send_content($response);
+// Phase 4.11 -- `email` is the owning user's address, joined in for display
+// and not a column here. Editing a row only relabels it; it does not move
+// money. Field rules: admin/includes/field-rules.php.
+admin_update_action($query, $fileGetContent, 'transactions');

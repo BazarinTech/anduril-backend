@@ -1,25 +1,12 @@
 <?php
 include 'initiate.php';
-$data = $fileGetContent->get_content();
+require_once __DIR__ . '/../includes/field-rules.php';
 
-$userId = intval($data['id']);
-$field = $data['field'];
-$value = $data['value'];
-
-// Sanitize field names to prevent SQL injection
-// Phase 4.11 -- the join date column is `date_created`, not `date_joined`.
-// It is not editable from the panel, so it is simply dropped rather than
-// renamed.
-$allowedFields = ["name", "email", "phone", "status", "upline", "role"];
-if (!in_array($field, $allowedFields, true)) {
-    http_response_code(400);
-    $fileGetContent->send_content(["success" => false, "message" => "Invalid field"]);
-    exit;
-}
-
-// Update query
-$update = $query->update('users', [$field => $value], ['ID' => $userId]);
-
-$response = ["success" => true, "message" => 'updated succefully'];
-
-$fileGetContent->send_content($response);
+/**
+ * Email and phone are what users sign in with, so both must stay unique: a
+ * second account with the same address would make login pick whichever row
+ * the database returns first. The rules enforce that, and no longer accept
+ * `upline` -- the Users page shows it as read-only because changing it
+ * re-points referral commission. See admin/includes/field-rules.php.
+ */
+admin_update_action($query, $fileGetContent, 'users');

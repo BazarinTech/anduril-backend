@@ -1,23 +1,64 @@
 <?php 
 include 'includes/main.php';
+require_once __DIR__ . '/includes/field-rules.php';
+
 $error = '';
 $msg = '';
+
+$form = ['email' => '', 'username' => '', 'role' => '', 'permissions' => ''];
+
 if (isset($_POST['submit'])) {
-    $email= $_POST['email'];
-    $user = $query->select('users', '*', ['email' => $email]);
-    if (count($user) > 0) {
-        $admins_count = count($query->select('admins', '*', ['userID' => $user[0]['ID']]));
-
-        if ($admins_count == 0) {
-            $username = $_POST['username'];
-            $role = $_POST['role'];
-            $permissions = $_POST['permissions'];
-            $insert = $query->insert('admins', ['userID' => $user[0]['ID'], 'username' => $username, 'roles' => $role, 'permissions' => $permissions]);
-        }
-
+    foreach (array_keys($form) as $field) {
+        $form[$field] = admin_form_input($field);
     }
 
+    /**
+     * This used to fail silently three ways -- an email with no account, an
+     * account that was already an admin, and a username over 20 characters
+     * (a strict-mode 500) -- and none of them told the admin anything. Each
+     * now has a message, and the new record is checked like every other.
+     */
+    if (!$isAdd) {
+        $error = "Your admin account does not have the 'add' permission.";
+    } else {
+        $email = trim($form['email']);
+        $user  = $email === '' ? [] : $query->select('users', '*', ['email' => $email]);
+
+        if (!$user) {
+            $error = 'No user account uses that email. The person must register first.';
+        } elseif ($query->select('admins', 'ID', ['userID' => $user[0]['ID']])) {
+            $error = 'That account is already an admin.';
+        } else {
+            [$values, $problem] = admin_validate_form($query, 'admins', [
+                'username'    => $form['username'],
+                'roles'       => $form['role'],
+                'permissions' => $form['permissions'],
+            ]);
+            $error = (string) ($problem ?? admin_grant_problem($query, $values['permissions']));
+
+            if ($error === '') {
+                try {
+                    $query->insert('admins', ['userID' => $user[0]['ID']] + $values);
+
+                    header('Location: admins?added=1');
+                    exit;
+                } catch (\Throwable $e) {
+                    error_log('[admin/admins] insert failed: ' . $e->getMessage());
+                    $error = 'Could not add the admin. Please try again.';
+                }
+            }
+        }
+    }
 }
+
+if ($error === '' && isset($_GET['added'])) {
+    $msg = 'Admin added.';
+}
+
+$esc = function ($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+};
+$reopen = $error !== '' && isset($_POST['submit']) && $isAdd;
 ?>
 <!DOCTYPE html>
 <html lang="en"  :dir="$store.app.direction" x-data="{ direction: $store.app.direction || 'ltr' }" x-bind:dir="direction" class="group/item" :data-mode="$store.app.mode" :data-sidebar="$store.app.sidebarMode">
@@ -81,11 +122,11 @@ if (isset($_POST['submit'])) {
                         <li class="text-xs dark:text-white/80">management</li>
                         <li class="text-xl font-semibold text-slate-800 dark:text-slate-100">Admins</li>
                     </ul>
-                    <div x-data="modals">
+                    <div x-data="modals(<?= $reopen ? 'true' : 'false' ?>)">
                         <div class="flex items-center justify-center">
                             <button type="button" class="btn <?= $isAdd ? '' : 'hidden' ?> bg-purple border border-purple rounded-md text-white transition-all duration-300 hover:bg-purple/[0.85] hover:border-purple/[0.85]" @click="toggle">Add new</button>
                         </div>
-                        <form action="admins" method="POST" enctype="multipart/form-data" class="fixed inset-0 bg-black/80 z-[99999] hidden overflow-y-auto dark:bg-dark/90" :class="open && '!block'">
+                        <form action="admins" method="POST" class="fixed inset-0 bg-black/80 z-[99999] hidden overflow-y-auto dark:bg-dark/90" :class="open && '!block'">
                             <div class="flex items-start justify-center min-h-screen px-4" @click.self="open = false">
                                 <div x-show="open" x-transition x-transition.duration.300 class="relative w-full max-w-lg p-0 my-8 overflow-hidden bg-white border rounded-lg border-slate-200 dark:bg-darklight dark:border-darkborder">
                                     <div class="flex items-center justify-between px-5 py-3 bg-white border-b border-slate-200 dark:bg-darklight dark:border-darkborder">
@@ -95,21 +136,24 @@ if (isset($_POST['submit'])) {
                                         </button>
                                     </div>
                                     <div class="p-5 space-y-4">
+                                        <?php if ($reopen): ?>
+                                            <p class="bg-danger/20 text-danger text-center rounded-lg py-2 px-2"><?= $esc($error) ?></p>
+                                        <?php endif; ?>
                                         <div class="space-y-1">
                                             <label>Admin Email</label>
-                                            <input type="email" name="email" class="form-input h-14" placeholder="eg Christof@gmail.com" required>
+                                            <input type="email" name="email" class="form-input h-14" placeholder="eg Christof@gmail.com" value="<?= $esc($form['email']) ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Admin Username</label>
-                                            <input name="username" type="text" class="form-input h-14" placeholder="eg bitech" required>
+                                            <input name="username" type="text" class="form-input h-14" placeholder="eg bitech" maxlength="20" value="<?= $esc($form['username']) ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Role</label>
-                                            <input name="role" type="text" class="form-input h-14" placeholder="eg CEO" required>
+                                            <input name="role" type="text" class="form-input h-14" placeholder="eg CEO" maxlength="255" value="<?= $esc($form['role']) ?>" required>
                                         </div>
                                         <div class="space-y-1 my-4">
                                             <label>Permissions</label>
-                                            <input name="permissions" type="text" class="form-input h-14" placeholder="eg [edit][add][view]" required>
+                                            <input name="permissions" type="text" class="form-input h-14" placeholder="eg [view][edit][add]" value="<?= $esc($form['permissions']) ?>" required>
                                         </div>
                                         <div class="flex items-center justify-end gap-4">
                                             <button type="button" class="btn text-danger border-danger hover:bg-danger hover:text-white" @click="toggle">Discard</button>
@@ -125,9 +169,14 @@ if (isset($_POST['submit'])) {
                 <!-- Start All Card -->
                 <div class="flex flex-col gap-4 min-h-[calc(100vh-212px)]">
                     <div class="grid grid-cols-1 gap-4">
+                        <?php if ($msg || ($error && !$reopen)): ?>
+                            <div class="card">
+                                <p class="<?= $msg ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger' ?> text-center rounded-lg py-2 px-2"><?= $esc($msg ?: $error) ?></p>
+                            </div>
+                        <?php endif; ?>
                         
                         <div class="card">
-                        <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Products Records</h2>
+                        <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Admin Records</h2>
                         
                             <?php
                             data_table([

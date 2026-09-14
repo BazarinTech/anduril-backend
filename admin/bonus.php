@@ -1,15 +1,57 @@
 <?php 
 include 'includes/main.php';
+require_once __DIR__ . '/includes/field-rules.php';
+
 $error = '';
 $msg = '';
+
+// Form field => column. The form's names predate the table's: its `type` is
+// the reward type and its `target_type` is the column called `type`.
+$form = ['name' => '', 'target' => '', 'reward' => '', 'type' => 'money', 'target_type' => 'users'];
+
 if (isset($_POST['submit'])) {
-    $name= $_POST['name'];
-    $target = $_POST['target'];
-    $reward = $_POST['reward'];
-    $type = $_POST['type'];
-    $target_type = $_POST['target_type'];
-    $insert = $query->insert('bonus', ['name' => $name, 'target' => $target, 'reward' => $reward, 'reward_type' => $type, 'type' => $target_type]);
+    foreach (array_keys($form) as $field) {
+        $form[$field] = admin_form_input($field);
+    }
+
+    if (!$isAdd) {
+        $error = "Your admin account does not have the 'add' permission.";
+    } else {
+        // Checked before the INSERT: the columns are narrow and MySQL is in
+        // strict mode, so an over-long value used to answer with a 500.
+        [$values, $problem] = admin_validate_form($query, 'bonus', [
+            'name'        => $form['name'],
+            'target'      => $form['target'],
+            'reward'      => $form['reward'],
+            'reward_type' => $form['type'],
+            'type'        => $form['target_type'],
+        ]);
+        $error = (string) $problem;
+
+        if ($error === '') {
+            try {
+                $query->insert('bonus', $values);
+
+                // Redirect so the new bonus is in the table (main.php read it
+                // before this insert) and a refresh cannot add it twice.
+                header('Location: bonus?added=1');
+                exit;
+            } catch (\Throwable $e) {
+                error_log('[admin/bonus] insert failed: ' . $e->getMessage());
+                $error = 'Could not save the bonus. Please try again.';
+            }
+        }
+    }
 }
+
+if ($error === '' && isset($_GET['added'])) {
+    $msg = 'Bonus added.';
+}
+
+$esc = function ($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+};
+$reopen = $error !== '' && isset($_POST['submit']) && $isAdd;
 ?>
 <!DOCTYPE html>
 <html lang="en"  :dir="$store.app.direction" x-data="{ direction: $store.app.direction || 'ltr' }" x-bind:dir="direction" class="group/item" :data-mode="$store.app.mode" :data-sidebar="$store.app.sidebarMode">
@@ -73,7 +115,7 @@ if (isset($_POST['submit'])) {
                         <li class="text-xs dark:text-white/80">commodities controll</li>
                         <li class="text-xl font-semibold text-slate-800 dark:text-slate-100">Bonus</li>
                     </ul>
-                    <div x-data="modals ">
+                    <div x-data="modals(<?= $reopen ? 'true' : 'false' ?>)">
                         <div class="flex items-center justify-center">
                             <button type="button" class="btn <?= $isAdd ? '' : 'hidden' ?> bg-purple border border-purple rounded-md text-white transition-all duration-300 hover:bg-purple/[0.85] hover:border-purple/[0.85]" @click="toggle">Add new</button>
                         </div>
@@ -81,7 +123,7 @@ if (isset($_POST['submit'])) {
                             <div class="flex items-start justify-center min-h-screen px-4" @click.self="open = false">
                                 <div x-show="open" x-transition x-transition.duration.300 class="relative w-full max-w-lg p-0 my-8 overflow-hidden bg-white border rounded-lg border-slate-200 dark:bg-darklight dark:border-darkborder">
                                     <div class="flex items-center justify-between px-5 py-3 bg-white border-b border-slate-200 dark:bg-darklight dark:border-darkborder">
-                                        <h5 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Add Products</h5>
+                                        <h5 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Add Bonus</h5>
                                         <button type="button" class="text-muted hover:text-black dark:hover:text-white" @click="toggle" x-on:click="open = false">
                                             <svg class="w-5 h-5" width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                                                 <path d="M24.2929 6.29289L6.29289 24.2929C6.10536 24.4804 6 24.7348 6 25C6 25.2652 6.10536 25.5196 6.29289 25.7071C6.48043 25.8946 6.73478 26 7 26C7.26522 26 7.51957 25.8946 7.70711 25.7071L25.7071 7.70711C25.8946 7.51957 26 7.26522 26 7C26 6.73478 25.8946 6.48043 25.7071 6.29289C25.5196 6.10536 25.2652 6 25 6C24.7348 6 24.4804 6.10536 24.2929 6.29289Z" fill="currentcolor" />
@@ -90,31 +132,34 @@ if (isset($_POST['submit'])) {
                                         </button>
                                     </div>
                                     <form action='bonus' method='post' class="p-5 space-y-4">
+                                        <?php if ($reopen): ?>
+                                            <p class="bg-danger/20 text-danger text-center rounded-lg py-2 px-2"><?= $esc($error) ?></p>
+                                        <?php endif; ?>
                                         <div class="text-black dark:text-muted">
                                             <div class="space-y-1">
                                                 <label>Bonus Title</label>
-                                                <input type="text" name='name' class="form-input h-14" placeholder="name" required>
+                                                <input type="text" name='name' class="form-input h-14" placeholder="name" maxlength="255" value="<?= $esc($form['name']) ?>" required>
                                             </div>
                                             <div class="space-y-1 my-4">
                                                 <label>Bonus Target</label>
-                                                <input type="number" name='target' class="form-input h-14" placeholder="target" required>
+                                                <input type="number" name='target' min="0" step="1" class="form-input h-14" placeholder="target" value="<?= $esc($form['target']) ?>" required>
                                             </div>
                                             <div class="space-y-1 my-4">
                                                 <label>Bonus Reward</label>
-                                                <input type="number" name='reward' class="form-input h-14" placeholder="reward" required>
+                                                <input type="number" name='reward' min="0" step="0.01" class="form-input h-14" placeholder="reward" value="<?= $esc($form['reward']) ?>" required>
                                             </div>
                                             <div class="space-y-1 my-4">
                                                 <label>Reward Type</label>
                                                 <select name="type" id="" class="form-input h-14">
-                                                    <option value="products">Products</option>
-                                                    <option value="money">Money</option>
+                                                    <option value="products" <?= $form['type'] === 'products' ? 'selected' : '' ?>>Products</option>
+                                                    <option value="money" <?= $form['type'] !== 'products' ? 'selected' : '' ?>>Money</option>
                                                 </select>
                                             </div>
                                             <div class="space-y-1 my-4">
                                                 <label>Target Type</label>
                                                 <select name="target_type" id="" class="form-input h-14">
-                                                    <option value="users">Users</option>
-                                                    <option value="actives">Active</option>
+                                                    <option value="users" <?= $form['target_type'] !== 'actives' ? 'selected' : '' ?>>Users</option>
+                                                    <option value="actives" <?= $form['target_type'] === 'actives' ? 'selected' : '' ?>>Active</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -132,6 +177,11 @@ if (isset($_POST['submit'])) {
                 <!-- Start All Card -->
                 <div class="flex flex-col gap-4 min-h-[calc(100vh-212px)]">
                     <div class="grid grid-cols-1 gap-4">
+                        <?php if ($msg || ($error && !$reopen)): ?>
+                            <div class="card">
+                                <p class="<?= $msg ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger' ?> text-center rounded-lg py-2 px-2"><?= $esc($msg ?: $error) ?></p>
+                            </div>
+                        <?php endif; ?>
                         
                         <div class="card">
                         <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Bonus Records</h2>

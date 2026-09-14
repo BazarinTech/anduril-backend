@@ -1,30 +1,52 @@
 <?php 
 include 'includes/main.php';
 include 'includes/send-email.php';
+require_once __DIR__ . '/includes/field-rules.php';
+
 $error = '';
 $msg = '';
-
 $isEdit = false;
 
+$form = ['code' => '', 'amount' => '', 'expiry' => ''];
 
 if (isset($_POST['submit'])) {
-    $code = $_POST['code'];
-    $expiry = $_POST['expiry'];
-    $amount = $_POST['amount'];
-    
-    
-    // Check if coupon with this tracking code exists
-    if(count($query->select('coupons', '*', ['code' => $code])) == 0){
-        
-        $query->insert('coupons', ['code' => $code, 'expiry' => $expiry, 'amount' => $amount]);
-        $msg = "Code added succesfully";
-            
-    }else{
-        $error = 'That code exist, please try another one!';
+    foreach (array_keys($form) as $field) {
+        $form[$field] = admin_form_input($field);
     }
-    
 
+    if (!$isAdd) {
+        $error = "Your admin account does not have the 'add' permission.";
+    } else {
+        /**
+         * `code` is VARCHAR(10) and `expiry` an INT of minutes. Under strict
+         * mode an 11-character code or an expiry like "2 hours" threw out of
+         * the INSERT with a 500. The rules also cover the duplicate check this
+         * page already did.
+         */
+        [$values, $problem] = admin_validate_form($query, 'coupons', $form);
+        $error = (string) $problem;
+
+        if ($error === '') {
+            try {
+                $query->insert('coupons', $values);
+
+                header('Location: coupon?added=' . rawurlencode($values['code']));
+                exit;
+            } catch (\Throwable $e) {
+                error_log('[admin/coupon] insert failed: ' . $e->getMessage());
+                $error = 'Could not save the coupon. Please try again.';
+            }
+        }
+    }
 }
+
+if ($error === '' && isset($_GET['added']) && is_string($_GET['added'])) {
+    $msg = 'Coupon ' . $_GET['added'] . ' created.';
+}
+
+$esc = function ($value) {
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+};
 ?>
 <!DOCTYPE html>
 <html lang="en"  :dir="$store.app.direction" x-data="{ direction: $store.app.direction || 'ltr' }" x-bind:dir="direction" class="group/item" :data-mode="$store.app.mode" :data-sidebar="$store.app.sidebarMode">
@@ -97,28 +119,28 @@ if (isset($_POST['submit'])) {
                             <div class="w-full grid place-items-center">
                                 <?php 
                                 if ($msg) {
-                                    echo '<p class="bg-success/20 text-success text-center w-1/2 my-2 rounded-lg py-2 px-2">'.$msg.'</p>';
+                                    echo '<p class="bg-success/20 text-success text-center w-1/2 my-2 rounded-lg py-2 px-2">'.$esc($msg).'</p>';
                                 }
                                 ?>
 
                                 <?php 
                                 if ($error) {
-                                    echo '<p class="bg-danger/20 text-danger text-center w-1/2 my-2 rounded-lg py-2 px-2">'.$error.'</p>';
+                                    echo '<p class="bg-danger/20 text-danger text-center w-1/2 my-2 rounded-lg py-2 px-2">'.$esc($error).'</p>';
                                 }
                                 ?>
                             </div>
                             <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Create Coupons</h2>
                                 <div class="space-y-1">
                                     <label>Coupon Code</label>
-                                    <input type="text" name='code' class="form-input h-14" placeholder="Code" required>
+                                    <input type="text" name='code' class="form-input h-14" placeholder="e.g. WELCOME10" maxlength="10" pattern="[A-Za-z0-9_\-]+" title="Letters, numbers, - and _ only" value="<?= $esc($form['code']) ?>" required>
                                 </div>
                                 <div class="space-y-1">
                                     <label>Amount</label>
-                                    <input type="number" name='amount' class="form-input h-14" placeholder="Amount" required>
+                                    <input type="number" name='amount' min="0" step="0.01" class="form-input h-14" placeholder="Amount" value="<?= $esc($form['amount']) ?>" required>
                                 </div>
                                 <div class="space-y-1">
                                     <label>Expiry(minutes)</label>
-                                    <input type="text" name='expiry' class="form-input h-14" placeholder="Expiry" required>
+                                    <input type="number" name='expiry' min="1" max="525600" step="1" class="form-input h-14" placeholder="e.g. 60" value="<?= $esc($form['expiry']) ?>" required>
                                 </div>
  
                                 <button type="submit" name='submit' class="btn bg-purple border border-purple rounded-md text-white transition-all duration-300 hover:bg-purple/[0.85] hover:border-purple/[0.85]">Submit</button>
