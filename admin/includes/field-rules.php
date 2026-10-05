@@ -93,7 +93,7 @@ if (!function_exists('admin_rule_sets')) {
                 'max'         => ['label' => 'Price',        'type' => 'amount', 'max' => 10,  'required' => true],
                 'min'         => ['label' => 'Minimum',      'type' => 'amount', 'max' => 10,  'required' => true],
                 'returns'     => ['label' => 'Return',       'type' => 'amount', 'max' => 10,  'required' => true],
-                'duration'    => ['label' => 'Duration (days)', 'type' => 'count', 'min' => 1, 'max' => 36500, 'required' => true, 'insert_only' => true],
+                'duration'    => ['label' => 'Expiry (days)', 'type' => 'count', 'min' => 1, 'max' => 36500, 'required' => true],
                 'tier'        => ['label' => 'Tier',         'type' => 'text',   'max' => 20,  'required' => true],
                 'riskLevel'   => ['label' => 'Risk level',   'type' => 'count',  'max' => 100, 'required' => true, 'insert_only' => true],
                 'order_limit' => ['label' => 'Order limit',  'type' => 'count',  'max' => 1000000, 'required' => true],

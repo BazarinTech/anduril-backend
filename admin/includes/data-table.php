@@ -69,6 +69,20 @@
  *   post      Extra POST fields, e.g. ['action' => 'Success'].
  *   confirm   Confirmation prompt. '{value}' is replaced with the id posted.
  *   show      false to omit the button entirely (permission gating).
+ *
+ * IMAGE UPLOAD (optional, one per table)
+ * -------------------------------------
+ *     'image' => [
+ *         'field'  => 'image_url',                      // row property holding the current URL
+ *         'upload' => 'actions/update_product_image.php',
+ *         'label'  => 'Product image',
+ *         'hint'   => 'PNG, JPG, GIF, WEBP or SVG, under 1000KB.',
+ *     ]
+ *
+ * The other fields are saved as JSON, which cannot carry a file, so a chosen
+ * image is posted separately as multipart/form-data to `upload` (with the
+ * record id) when Save is pressed. The endpoint answers {success, image_url},
+ * and that URL replaces the thumbnail in the row without a page reload.
  */
 
 if (!function_exists('data_table')) {
@@ -83,6 +97,7 @@ if (!function_exists('data_table')) {
         $columns  = $config['columns'] ?? [];
         $rows     = $config['rows'] ?? [];
         $actions  = $config['actions'] ?? [];
+        $image    = $config['image'] ?? null;
         $update   = $config['update'] ?? null;
         $resource = $config['resource'] ?? null;
         $canEdit  = !empty($config['can_edit']) && $update !== null;
@@ -109,6 +124,9 @@ if (!function_exists('data_table')) {
             'perPage'  => $config['per_page'] ?? 25,
             'columns'  => $columns,
             'canEdit'  => $canEdit,
+            // Only offered when this admin may edit at all; without `canEdit`
+            // the modal that carries the file input is never rendered.
+            'image'    => $canEdit ? $image : null,
         ];
 
         $rowsJson = json_encode(
@@ -181,7 +199,12 @@ if (!function_exists('data_table')) {
                             ?>
                             <td class="<?= $classes ?>">
                                 <?php if ($type === 'avatar'): ?>
-                                    <img class="dt-avatar" src="assets/images/avatar-12.png" alt="">
+                                    <?php /* Every row used to show the same placeholder, so the
+                                             Image column told you nothing about the record. */ ?>
+                                    <img class="dt-avatar"
+                                         :src="item.<?= $field ?> || 'assets/images/avatar-12.png'"
+                                         @error="$event.target.src = 'assets/images/avatar-12.png'"
+                                         alt="" loading="lazy">
                                 <?php elseif (!empty($col['badge'])): ?>
                                     <span class="dt-badge"
                                           :class="badgeClass(<?= htmlspecialchars(json_encode($col['badge']), ENT_QUOTES, 'UTF-8') ?>, item.<?= $field ?>)"
@@ -269,6 +292,26 @@ if (!function_exists('data_table')) {
                             <div class="dt-alert dt-alert--danger" x-text="error"></div>
                         </template>
 
+                        <template x-if="cfg.image">
+                            <div class="dt-field dt-field--wide">
+                                <label x-text="cfg.image.label || 'Image'"></label>
+                                <div class="dt-image">
+                                    <img class="dt-image__preview"
+                                         :src="imagePreview || 'assets/images/avatar-12.png'"
+                                         @error="$event.target.src = 'assets/images/avatar-12.png'" alt="">
+                                    <div class="dt-image__controls">
+                                        <input type="file" x-ref="imageInput" accept="image/*" @change="pickImage($event)">
+                                        <template x-if="imageFile">
+                                            <button type="button" class="dt-btn" @click="clearImage()">Remove selection</button>
+                                        </template>
+                                    </div>
+                                </div>
+                                <template x-if="cfg.image.hint">
+                                    <p class="dt-field__hint" x-text="cfg.image.hint"></p>
+                                </template>
+                            </div>
+                        </template>
+
                         <template x-for="col in modalColumns" :key="col.label">
                             <div class="dt-field" :class="[col.wide ? 'dt-field--wide' : '', col.edit ? '' : 'dt-field--readonly']">
                                 <label x-text="col.label"></label>
@@ -352,6 +395,8 @@ window.dataTable = function () {
         editing: null,   // the live row being edited
         draft: {},       // a copy, so Cancel really cancels
         saving: false,
+        imageFile: null,    // the picked file, uploaded only on Save
+        imagePreview: '',   // object URL while picking, stored URL otherwise
         error: '',
         flash: '',
         flashType: 'danger',
@@ -439,6 +484,11 @@ window.dataTable = function () {
             this.error = '';
             this.editing = item;
             this.draft = {};
+            this.clearImage();
+
+            if (this.cfg.image) {
+                this.imagePreview = item[this.cfg.image.field] || '';
+            }
 
             this.modalColumns.forEach(col => {
                 this.draft[col.source] = item[col.source] ?? '';
@@ -454,6 +504,55 @@ window.dataTable = function () {
             this.editing = null;
             this.draft = {};
             this.error = '';
+            this.clearImage();
+        },
+
+        /* -- image ------------------------------------------------------ */
+
+        pickImage(event) {
+            const file = event.target.files && event.target.files[0];
+
+            if (!file) { this.clearImage(); return; }
+
+            this.imageFile = file;
+            // Shown immediately, so the admin sees what they chose before the
+            // upload happens on Save.
+            this.imagePreview = URL.createObjectURL(file);
+        },
+
+        clearImage() {
+            // Revoke only our own object URL, never a stored image URL.
+            if (this.imageFile && this.imagePreview) URL.revokeObjectURL(this.imagePreview);
+
+            this.imageFile = null;
+            this.imagePreview = this.editing && this.cfg.image ? (this.editing[this.cfg.image.field] || '') : '';
+
+            if (this.$refs.imageInput) this.$refs.imageInput.value = '';
+        },
+
+        /**
+         * The file goes up on its own request: the field saves below are JSON,
+         * which cannot carry one.
+         */
+        async uploadImage(id) {
+            const body = new FormData();
+            body.append('id', id);
+            body.append('image', this.imageFile);
+
+            const res = await fetch(this.cfg.image.upload, { method: 'POST', body: body });
+
+            let data = {};
+            try { data = await res.json(); } catch (e) { /* handled below */ }
+
+            if (!res.ok || !data.success) {
+                if (res.status === 403) {
+                    throw new Error('You do not have permission to change the image. Sign in again if your session has expired.');
+                }
+                throw new Error(data.message || ('Could not save the image (HTTP ' + res.status + ')'));
+            }
+
+            // Mirror the stored URL so the row's thumbnail updates in place.
+            this.editing[this.cfg.image.field] = data.image_url || '';
         },
 
         async save() {
@@ -466,12 +565,18 @@ window.dataTable = function () {
                 .filter(col => String(this.draft[col.source] ?? '') !== String(this.editing[col.source] ?? ''))
                 .map(col => ({ column: col.edit, source: col.source, value: this.draft[col.source], reload: col.reload }));
 
-            if (!changed.length) { this.close(); return; }
+            const hasImage = Boolean(this.cfg.image && this.imageFile);
+
+            if (!changed.length && !hasImage) { this.close(); return; }
 
             this.saving = true;
             this.error = '';
 
             try {
+                // The image first: if it fails, nothing else has been written
+                // yet and the admin can retry the whole modal unchanged.
+                if (hasImage) await this.uploadImage(id);
+
                 for (const change of changed) {
                     const res = await fetch(this.cfg.update, {
                         method: 'POST',

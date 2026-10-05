@@ -187,6 +187,9 @@ $products = $query->select('products');
 foreach ($products as $row) {
     $products_records[] = [
         'id' => $row['ID'],
+        // The Image column rendered a fixed placeholder for every row; this is
+        // what it actually shows now, and what the edit modal previews.
+        'image_url' => product_image_url($row['image'] ?? ''),
         'name' => $row['name'],
         'return' => $row['returns'],
         'min' => $row['min'],

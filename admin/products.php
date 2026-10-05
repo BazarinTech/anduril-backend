@@ -2,6 +2,7 @@
 include 'includes/main.php';
 require_once __DIR__ . '/../lib/storage.php';
 require_once __DIR__ . '/includes/field-rules.php';
+require_once __DIR__ . '/includes/product-image.php';
 
 /**
  * Product images no longer go to `uploads/` on this machine's disk. They go
@@ -60,201 +61,41 @@ if (isset($_POST['submit'])) {
     $tier        = $values['tier'];
     $limit       = $values['order_limit'];
 
-    // File upload handling
-    if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
+    /**
+     * The image, through the shared pipeline the Edit modal also uses
+     * (admin/includes/product-image.php). This file previously carried ~120
+     * lines of inline finfo/GD handling, duplicated the moment a second place
+     * needed to accept an image.
+     */
+    $stored = store_uploaded_product_image($_FILES['image'] ?? null);
 
-        // (Recommended) detect MIME using finfo instead of trusting $_FILES['type']
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $imageType = finfo_file($finfo, $_FILES['image']['tmp_name']);
-        finfo_close($finfo);
+    if (!$stored['ok']) {
+        $error = $stored['error'];
+        goto render_page;
+    }
 
-        $allowedTypes = [
-            'image/png',
-            'image/jpg',
-            'image/jpeg',
-            'image/gif',
-            'image/svg+xml',
-            'image/webp'
-        ];
+    try {
+        $query->insert('products', [
+            'name'        => $name,
+            'max'         => $max,
+            'min'         => $min,
+            'description' => $description,
+            'returns'     => $return,
+            'riskLevel'   => $riskLevel,
+            'duration'    => $duration,
+            'tier'        => $tier,
+            'image'       => $stored['name'],
+            'order_limit' => $limit,
+        ]);
 
-        $imageSize = $_FILES['image']['size'];
-        $maxSize   = 1000 * 1024; // 1000KB (your comment said 100KB, but math is 1000KB)
-
-        if (in_array($imageType, $allowedTypes, true) && $imageSize <= $maxSize) {
-            // The upload directory is storage's business now; when the
-            // driver is 'local' it creates its own.
-            $tmpPath = $_FILES['image']['tmp_name'];
-
-            // If SVG: do not resize with GD (GD can't rasterize SVG)
-            if ($imageType === 'image/svg+xml') {
-                // Not rasterised -- GD cannot. Stored as supplied.
-                $svgBase   = pathinfo($_FILES['image']['name'], PATHINFO_FILENAME);
-                $safeSvg   = preg_replace('/[^A-Za-z0-9_\-]/', '_', $svgBase);
-                $imageName = time() . "_" . $safeSvg . ".svg";
-
-                $stored = store_product_image($imageName, file_get_contents($tmpPath), 'image/svg+xml');
-
-                if (!$stored['ok']) {
-                    $error = $stored['error'];
-                    goto render_page;
-                }
-
-                $imageName = $stored['name'];
-
-                $insert = $query->insert('products', [
-                    'name'        => $name,
-                    'max'         => $max,
-                    'min'         => $min,
-                    'description' => $description,
-                    'returns'     => $return,
-                    'riskLevel'   => $riskLevel,
-                    'duration'    => $duration,
-                    'tier'        => $tier,
-                    'image'       => $imageName,
-                    'order_limit' => $limit
-                ]);
-
-                $msg = 'Product created successfully.';
-                goto render_page;
-            }
-
-            // Create image resource from uploaded file (NOW includes WEBP)
-            switch ($imageType) {
-                case 'image/png':
-                    $image = imagecreatefrompng($tmpPath);
-                    break;
-                case 'image/gif':
-                    $image = imagecreatefromgif($tmpPath);
-                    break;
-                case 'image/jpeg':
-                case 'image/jpg':
-                    $image = imagecreatefromjpeg($tmpPath);
-                    break;
-                case 'image/webp':
-                    if (!function_exists('imagecreatefromwebp')) {
-                        echo "WEBP is not supported on this server (GD missing WEBP support).";
-                        exit;
-                    }
-                    $image = imagecreatefromwebp($tmpPath);
-                    break;
-                default:
-                    echo "Unsupported image type.";
-                    exit;
-            }
-
-            if ($image === false) {
-                echo "Error processing image.";
-                exit;
-            }
-
-            $origWidth  = imagesx($image);
-            $origHeight = imagesy($image);
-
-            $newWidth  = 500;
-            $newHeight = 500;
-
-            $resizedImage = imagecreatetruecolor($newWidth, $newHeight);
-
-            // Handle transparency for PNG, GIF, and WEBP
-            if (in_array($imageType, ['image/png', 'image/gif', 'image/webp'], true)) {
-                imagealphablending($resizedImage, false);
-                imagesavealpha($resizedImage, true);
-
-                $transparent = imagecolorallocatealpha($resizedImage, 0, 0, 0, 127);
-                imagefilledrectangle($resizedImage, 0, 0, $newWidth, $newHeight, $transparent);
-
-                if ($imageType === 'image/gif') {
-                    imagecolortransparent($resizedImage, $transparent);
-                }
-            }
-
-            imagecopyresampled(
-                $resizedImage,
-                $image,
-                0, 0, 0, 0,
-                $newWidth, $newHeight,
-                $origWidth, $origHeight
-            );
-
-            // Keep extension consistent with output format (NOW supports WEBP)
-            $baseName  = pathinfo($_FILES['image']['name'], PATHINFO_FILENAME);
-            $safeBase  = preg_replace('/[^A-Za-z0-9_\-]/', '_', $baseName);
-            $imageName = time() . "_" . $safeBase;
-
-            /**
-             * GD writes to a path or to stdout. The resized image is captured
-             * from the output buffer so it can be handed to storage as bytes
-             * -- writing it to disk first, only to read it back and upload it,
-             * would mean a temp file on a filesystem that may not survive the
-             * request.
-             */
-            ob_start();
-
-            if ($imageType === 'image/png') {
-                $imageName  .= ".png";
-                $outputType  = 'image/png';
-                imagepng($resizedImage);
-            } elseif ($imageType === 'image/gif') {
-                $imageName  .= ".gif";
-                $outputType  = 'image/gif';
-                imagegif($resizedImage);
-            } elseif ($imageType === 'image/webp') {
-                if (!function_exists('imagewebp')) {
-                    ob_end_clean();
-                    $error = 'WEBP output is not supported on this server (GD is missing WEBP support).';
-                    goto render_page;
-                }
-                $imageName  .= ".webp";
-                $outputType  = 'image/webp';
-                imagewebp($resizedImage, null, 90); // quality 0-100
-            } else {
-                $imageName  .= ".jpg";
-                $outputType  = 'image/jpeg';
-                imagejpeg($resizedImage, null, 90);
-            }
-
-            $imageBytes = ob_get_clean();
-
-            imagedestroy($resizedImage);
-            imagedestroy($image);
-
-            $stored = store_product_image($imageName, $imageBytes, $outputType);
-
-            if (!$stored['ok']) {
-                $error = $stored['error'];
-                goto render_page;
-            }
-
-            $imageName = $stored['name'];
-
-            $insert = $query->insert('products', [
-                'name'        => $name,
-                'max'         => $max,
-                'min'         => $min,
-                'description' => $description,
-                'returns'     => $return,
-                'riskLevel'   => $riskLevel,
-                'duration'    => $duration,
-                'tier'        => $tier,
-                'image'       => $imageName,
-                'order_limit' => $limit
-            ]);
-
-            $msg = 'Product created successfully.';
-        } else {
-            $error = 'Invalid file type or size. Images must be PNG, JPG, GIF, WEBP or SVG and under 1000KB.';
-        }
-    } else {
-        $error = 'No file uploaded.';
+        $msg = 'Product created successfully.';
+        $form = array_map(static fn () => '', $form);
+    } catch (\Throwable $e) {
+        error_log('[admin/products] insert failed: ' . $e->getMessage());
+        $error = 'Could not save the product. Please try again.';
     }
 }
 
-/**
- * The upload branches used to `echo` a bare sentence and `exit`, which
- * abandoned the page -- the admin got one line of text on a blank screen and
- * had to navigate back. They set $msg / $error and land here instead, so the
- * result is rendered on the page it came from.
- */
 render_page:
 ?>
 
@@ -438,15 +279,23 @@ render_page:
                                 'can_delete' => $isEdit,
                                 'search'     => ['name', 'tier', 'status'],
                                 'empty'      => 'No products configured yet.',
+                                'image'      => [
+                                    'field'  => 'image_url',
+                                    'upload' => 'actions/update_product_image.php',
+                                    'label'  => 'Product image',
+                                    'hint'   => 'PNG, JPG, GIF, WEBP or SVG, under 1000KB. Resized to 500x500 and shown to users in the app.',
+                                ],
                                 'columns'    => [
                                     ['label' => '#',     'field' => 'id'],
-                                    ['label' => 'Image', 'field' => 'image', 'type' => 'avatar'],
+                                    ['label' => 'Image', 'field' => 'image_url', 'type' => 'avatar'],
                                     ['label' => 'Product Name', 'field' => 'name', 'edit' => 'name'],
                                     ['label' => 'Price', 'field' => 'max', 'edit' => 'max', 'type' => 'number', 'numeric' => true,
                                      'hint'  => 'Stored in products.max -- the amount a user pays for one unit.'],
                                     ['label' => 'Return(Kes)', 'field' => 'return', 'edit' => 'returns', 'type' => 'number', 'numeric' => true,
                                      'hint'  => 'Paid out per roll.'],
                                     ['label' => 'Tier',  'field' => 'tier', 'edit' => 'tier'],
+                                    ['label' => 'Expiry (days)', 'field' => 'duration', 'edit' => 'duration', 'type' => 'number', 'numeric' => true,
+                                     'hint'  => 'How many days a new order runs for. Orders already placed keep the duration they were bought with.'],
                                     ['label' => 'Order Limit', 'field' => 'order_limit', 'edit' => 'order_limit', 'type' => 'number', 'numeric' => true],
                                     ['label' => 'Status', 'field' => 'status', 'edit' => 'status',
                                      'type'  => 'select', 'options' => ['Active' => 'Active', 'Inactive' => 'Inactive'],
