@@ -109,6 +109,15 @@ $data = $fileGetContent->get_content();
 
     $status = (string) $pick(['status', 'transactionStatus', 'resultDesc']);
 
+    /**
+     * The event name, e.g. "transaction.success" / "transaction.failed".
+     *
+     * Read as a second opinion on `status`, not instead of it: the two agree
+     * on a real payload, and reading both means an outcome is still
+     * recognised if one of them is missing.
+     */
+    $eventType = strtolower((string) ($data['event_type'] ?? $data['eventType'] ?? ''));
+
     $account = (string) $pick(['phone_number', 'phoneNumber', 'phone', 'msisdn', 'account']);
 
     if ($trackingID === '') {
@@ -206,7 +215,29 @@ $data = $fileGetContent->get_content();
         exit;
     }
 
-    if ($status == 'SUCCESS') {
+    /**
+     * WHICH OUTCOMES ARE FINAL
+     * ------------------------
+     * Palpluss sends "transaction.updated" events as a payment progresses, so
+     * a callback can arrive while the customer is still holding their phone.
+     *
+     * This used to be a two-way split: SUCCESS credited, and *everything else*
+     * marked the deposit Failed. A PENDING or PROCESSING update therefore
+     * closed the row for good, and the real success that followed found no
+     * pending transaction to credit -- the customer had paid and nothing
+     * arrived. Only an explicit failure is final now; anything else leaves the
+     * row Pending for the next callback.
+     */
+    $statusUpper = strtoupper($status);
+
+    $isSuccess = $statusUpper === 'SUCCESS'
+        || $statusUpper === 'COMPLETED'
+        || $eventType === 'transaction.success';
+
+    $isFailure = in_array($statusUpper, ['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'CANCELED', 'DECLINED', 'TIMEOUT', 'EXPIRED', 'ERROR'], true)
+        || in_array($eventType, ['transaction.failed', 'transaction.failure', 'transaction.cancelled', 'transaction.canceled', 'transaction.expired'], true);
+
+    if ($isSuccess) {
         $userID = $transaction['userID'];
         $amount = money($transaction['amount']);
 
@@ -280,9 +311,19 @@ $data = $fileGetContent->get_content();
 
         echo json_encode(['status' => 'ok']);
 
-    }else{
+    } elseif ($isFailure) {
         //update transaction status
         $query->update('transactions', ['status' => 'Failed'], ['trackingID' => $trackingID]);
+
+        error_log("[palpluss_deposit] {$trackingID} failed: status={$status} event={$eventType}");
+
         echo json_encode(['status' => 'ok']);
+    } else {
+        // Still in flight. Acknowledge so the provider stops retrying this
+        // update, and leave the row Pending so the final callback can settle
+        // it either way.
+        error_log("[palpluss_deposit] {$trackingID} still pending: status={$status} event={$eventType}");
+
+        echo json_encode(['status' => 'ok', 'message' => 'Awaiting final status']);
     }
 }

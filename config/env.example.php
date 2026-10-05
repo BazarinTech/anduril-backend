@@ -47,9 +47,14 @@ return [
 
     // -- Palpluss (M-Pesa STK push + B2C payouts) -------------------------
     'PALPLUSS_KEY'           => '',
+    // The payment channel an STK push charges against. Required: deposit.php
+    // refuses to raise a push without it.
     'PALPLUSS_CHANNEL_ID'    => '',
     'PALPLUSS_CREDENTIAL_ID' => '',
-    // Deposit STK push (returns a transactionId UUID, accepts Idempotency-Key)
+    // Deposit STK push (returns a transactionId UUID, accepts Idempotency-Key).
+    'PALPLUSS_STK_URL'       => 'https://api.palpluss.com/v1/payments/stk',
+    // The wallet top-up endpoint deposits used to go through. Kept only as a
+    // fallback for PALPLUSS_STK_URL on an environment that has not set it.
     'PALPLUSS_TOPUP_URL'     => 'https://api.palpluss.com/v1/wallets/b2c/topups',
     'PALPLUSS_B2C_URL'       => 'https://api.palpluss.com/v1/b2c/payouts',
 

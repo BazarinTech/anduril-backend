@@ -30,18 +30,26 @@ function create_tracking_ID() {
 /**
  * Start an M-Pesa STK push against Palpluss.
  *
- * Request and response follow the wallet top-up API:
+ * Request and response follow the payments STK API:
  *
- *   POST {base}/v1/wallets/b2c/topups
+ *   POST {PALPLUSS_STK_URL}            -- /v1/payments/stk
  *   Authorization: Basic <key>
+ *   Content-Type: application/json
  *   Idempotency-Key: <our reference>
- *   { amount, phone, accountReference, transactionDesc, callbackUrl }
+ *   { amount, phone, accountReference, transactionDesc, channelId, callbackUrl }
  *
- * The response carries a `transactionId` UUID, and that UUID is what we now
- * store as the transaction's reference -- the provider quotes it in the
- * callback and in support conversations, so matching on it is more reliable
- * than matching on a string we invented. Our own reference is kept alongside
- * it in `local_ref` so a deposit can still be traced from either side.
+ * This used to post to /v1/wallets/b2c/topups, the wallet top-up endpoint,
+ * and sent no channelId at all. `channelId` names the paybill/till the
+ * customer is charged against, so it is required here and the push cannot be
+ * raised without it -- hence the refusal below rather than a request the
+ * provider will reject.
+ *
+ * The response carries a `transactionId` UUID, and that UUID is what we store
+ * as the transaction's reference -- the provider quotes it as `transaction.id`
+ * in the callback and in support conversations, so matching on it is more
+ * reliable than matching on a string we invented. Our own reference is kept
+ * alongside it in `local_ref` so a deposit can still be traced from either
+ * side, and the provider echoes it back as `external_reference` on an STK.
  */
 function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
     $headers = [
@@ -49,11 +57,26 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
         'Idempotency-Key: ' . $trackingID,
     ];
 
+    $channelId = trim((string) env('PALPLUSS_CHANNEL_ID', ''));
+
+    if ($channelId === '') {
+        // Without it the provider has no channel to charge against. Refusing
+        // here costs the customer one clear message; sending it anyway costs
+        // them a failed push with the provider's own wording.
+        error_log('[deposit] REFUSED: PALPLUSS_CHANNEL_ID is not set');
+
+        return [
+            'status' => 'Failed',
+            'message' => 'Deposits are temporarily unavailable. Please try again shortly.',
+        ];
+    }
+
     $data = [
         "amount" => (float) $amount,
         "phone" => $account,
         "accountReference" => $trackingID,
         "transactionDesc" => "Deposit",
+        "channelId" => $channelId,
         "callbackUrl" => callback_url('palpluss_deposit_callback.php'),
     ];
 
@@ -80,7 +103,7 @@ function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
         ];
     }
 
-    $inititate = $api->request(env('PALPLUSS_TOPUP_URL'), 'POST', $data, $headers);
+    $inititate = $api->request(env('PALPLUSS_STK_URL', env('PALPLUSS_TOPUP_URL')), 'POST', $data, $headers);
 
     // An unreachable provider makes Curl::request() return null.
     if (!is_array($inititate)) {
