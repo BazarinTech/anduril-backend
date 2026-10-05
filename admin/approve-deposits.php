@@ -9,8 +9,8 @@ $isEdit = false;
 // The two-level refferal_algo() copy that lived here is gone. It disagreed
 // with the three-level version in the deposit callback, so the same deposit
 // paid different commission depending on whether it settled automatically or
-// an admin approved it (finding 4.3). Both now call referral_commission()
-// from bootstrap/referrals.php.
+// an admin approved it (finding 4.3). Neither pays commission now: it is
+// earned when the user buys a package -- see bootstrap/referrals.php.
 
 if (isset($_POST['submit'])) {
     $trackingID= $_POST['id'];
@@ -58,8 +58,9 @@ if (isset($_POST['submit'])) {
                         } else {
                             $query->update('wallets', ['balance' => money_str(money($wallet['balance']) + money($amount))], ['userID' => $userID]);
 
-                            //refferal income
-                            referral_commission($pdo, $query, $userID, $amount);
+                            // No upline commission here: it is earned when the
+                            // user buys a package, not when money arrives.
+                            // See bootstrap/referrals.php.
 
                             $pdo->commit();
 
@@ -204,7 +205,7 @@ if (isset($_POST['submit'])) {
                                 'actions'  => [
                                     ['label' => 'Approve', 'style' => 'success', 'field' => 'trackingID',
                                      'post'  => ['action' => 'Success'],
-                                     'confirm' => 'Approve deposit {value}? This credits the wallet and pays referral commission.'],
+                                     'confirm' => 'Approve deposit {value}? This credits the user wallet.'],
                                     ['label' => 'Reject',  'style' => 'danger',  'field' => 'trackingID',
                                      'post'  => ['action' => 'Declined'],
                                      'confirm' => 'Reject deposit {value}?'],

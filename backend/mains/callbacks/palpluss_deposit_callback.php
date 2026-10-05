@@ -22,7 +22,8 @@ verify_callback_request('palpluss_deposit');
 
 // refferal_algo() lived here as a 90-line copy that paid three levels, while
 // admin/approve-deposits.php carried a two-level copy of the same thing. Both
-// are replaced by referral_commission() in bootstrap/referrals.php.
+// are gone: commission is no longer paid on a deposit at all. It is earned
+// when the user buys a package -- see bootstrap/referrals.php.
 
 //get data posted remotely
 $data = $fileGetContent->get_content();
@@ -210,15 +211,15 @@ $data = $fileGetContent->get_content();
         $amount = money($transaction['amount']);
 
         /**
-         * Phase 3.2 -- the credit, the status flip and the upline commission
-         * are one atomic unit.
+         * Phase 3.2 -- the credit and the status flip are one atomic unit.
          *
-         * Two things made this dangerous before. The depositor's wallet was
-         * read and written without a lock, so a deposit landing at the same
-         * moment as any other credit could lose one of them. And the commission
-         * walk wrote to three more wallets with no lock at all -- an active
-         * upline collecting their own returns while a downline deposited could
-         * silently drop either amount.
+         * The depositor's wallet was read and written without a lock, so a
+         * deposit landing at the same moment as any other credit could lose
+         * one of them.
+         *
+         * Upline commission used to be paid here as well. It now follows the
+         * package purchase instead (backend/mains/invest.php), so a deposit
+         * credits exactly one wallet: the depositor's.
          *
          * Marking the transaction Success inside the same transaction is what
          * makes a replayed callback harmless: the row is only selected while
@@ -251,12 +252,9 @@ $data = $fileGetContent->get_content();
             $query->update('wallets', ['balance' => money_str(money($wallet['balance']) + $amount)], ['userID' => $userID]);
             $query->update('transactions', ['status' => 'Success', 'description' => $reference], ['trackingID' => $trackingID]);
 
-            //refferal income
-            $paid = referral_commission($pdo, $query, $userID, $amount);
-
             $pdo->commit();
 
-            error_log("[palpluss_deposit] credited {$amount} to user {$userID}; commission paid to " . count($paid) . " upline(s)");
+            error_log("[palpluss_deposit] credited {$amount} to user {$userID}");
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();

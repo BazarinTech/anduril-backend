@@ -104,7 +104,28 @@ if (isset($data['userID'])) {
                             $update_user_status = $query->update('users', ['status' => 'Active'], ['ID' => $userID]);
                         }
 
+                        /**
+                         * Upline commission, inside the same transaction as
+                         * the debit and the order.
+                         *
+                         * This is where commission is earned. It used to be
+                         * paid when a deposit settled, which rewarded money
+                         * that had merely been parked in a wallet -- and could
+                         * be withdrawn again without a package ever being
+                         * bought. See bootstrap/referrals.php.
+                         *
+                         * Being in the transaction means an upline is never
+                         * credited for a purchase that then rolls back, and
+                         * the wallet locks it takes are released with it.
+                         */
+                        $paid = referral_commission($pdo, $query, $userID, $amount);
+
                         $pdo->commit();
+
+                        if ($paid) {
+                            error_log('[invest] user ' . $userID . ' bought product ' . $prodID
+                                . ' for ' . money_str($amount) . '; commission paid to ' . count($paid) . ' upline(s)');
+                        }
 
                         $response = [
                             'status' => 'Success',

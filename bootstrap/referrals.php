@@ -2,14 +2,15 @@
 /**
  * REFERRAL COMMISSION
  * ===================
- * One implementation, shared by the deposit callback and the admin deposit
- * approval. There were previously two, and they disagreed:
+ * Commission is earned when a referred user BUYS A PACKAGE, not when they
+ * deposit. backend/mains/invest.php is the only caller.
  *
- *   - backend/mains/callbacks/palpluss_deposit_callback.php paid three levels
- *   - admin/approve-deposits.php paid two
- *
- * So the same deposit paid different commission depending on whether it
- * settled automatically or an admin approved it by hand (finding 4.3).
+ * It used to be paid on every settled deposit, from two places that disagreed
+ * about how many levels to pay (the callback paid three, admin approval paid
+ * two -- finding 4.3). Paying on the deposit meant money that was only parked
+ * in a wallet, and could be withdrawn again untouched, still earned the upline
+ * a commission. Paying on the purchase ties it to the thing the platform
+ * actually earns from, and each shilling can only be spent on a package once.
  *
  * The old version also walked the tree with three copy-pasted blocks and read
  * the level-3 upline *outside* the guard that checked whether a level-2 upline
@@ -79,6 +80,28 @@ if (!function_exists('referral_tree')) {
             }
         }
 
+        /**
+         * Package purchases per person, in one pass.
+         *
+         * This is the commission base now that commission follows purchases
+         * rather than deposits, so the dashboard's per-member figure is
+         * derived from the same thing the money is.
+         */
+        $purchases = [];
+        if (!empty($allIds)) {
+            $in   = implode(',', array_fill(0, count($allIds), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT userID, SUM(amount) AS total FROM orders
+                  WHERE type = 'investment' AND userID IN ($in)
+                  GROUP BY userID"
+            );
+            $stmt->execute($allIds);
+
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $purchases[(string) $row['userID']] = money($row['total']);
+            }
+        }
+
         // Direct downline counts per person, in one pass.
         $downlines = [];
         if (!empty($allIds)) {
@@ -112,13 +135,15 @@ if (!function_exists('referral_tree')) {
             'level2'    => $level2,
             'level3'    => $level3,
             'deposits'  => $deposits,
+            'purchases' => $purchases,
             'downlines' => $downlines,
             'phoneById' => $phoneById,
             'counts'    => [
                 'users'   => count($everyone),
                 'actives' => $activesDirect,
             ],
-            'total_deposits' => array_sum($deposits),
+            'total_deposits'  => array_sum($deposits),
+            'total_purchases' => array_sum($purchases),
         ];
     }
 }
@@ -176,7 +201,10 @@ if (!function_exists('bonus_progress')) {
 
 if (!function_exists('referral_commission')) {
     /**
-     * Pay upline commission on a deposit.
+     * Pay upline commission on a package purchase.
+     *
+     * $amount is what the buyer paid for the package; each level's configured
+     * percentage of it is credited to that upline.
      *
      * @return array Levels actually paid, for logging: [['userID'=>, 'level'=>, 'amount'=>], ...]
      */
@@ -198,7 +226,7 @@ if (!function_exists('referral_commission')) {
 
         $paid = [];
 
-        // Start from the depositor and climb.
+        // Start from the buyer and climb.
         $current = $query->select('users', '*', ['ID' => $userID]);
         $current = $current[0] ?? null;
 
@@ -241,7 +269,7 @@ if (!function_exists('referral_commission')) {
                         'userID'      => $uplineID,
                         'type'        => 'Commission',
                         'amount'      => money_str($commission),
-                        'description' => 'Level ' . $level . ' commission from referral of user ' . $userID . '.',
+                        'description' => 'Level ' . $level . ' commission from a package purchase by user ' . $userID . '.',
                         'status'      => 'Completed',
                     ]);
 

@@ -8,7 +8,7 @@
  * of whoever posted to it. There was no signature, no IP check, and no
  * comparison against what was actually paid -- so anyone could initiate a
  * large deposit, never pay it, post a forged SUCCESS callback, and be
- * credited in full, referral commissions included.
+ * credited in full.
  *
  * Palpluss does not sign its callbacks. What we do control is the URL handed
  * to the provider per transaction, so the shared secret travels in that URL

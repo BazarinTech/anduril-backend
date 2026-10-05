@@ -161,6 +161,11 @@ if (isset($data['userID'])) {
             foreach ($tree[$key] as $person) {
                 $id   = (string) $person['ID'];
                 $deps = $tree['deposits'][$id] ?? 0;
+                // Commission follows package purchases, not deposits, so the
+                // figure shown here is derived from the same base the money
+                // is. Showing a percentage of deposits would promise earnings
+                // for money that was only parked in a wallet.
+                $buys = $tree['purchases'][$id] ?? 0;
 
                 $bucket[] = [
                     'userID'      => $person['ID'],
@@ -170,7 +175,8 @@ if (isset($data['userID'])) {
                     'status'      => $person['status'],
                     'username'    => $person['username'],
                     'deposits'    => $deps,
-                    'commission'  => $deps * $rates[$depth],
+                    'purchases'   => $buys,
+                    'commission'  => $buys * $rates[$depth],
                     'downlines'   => $tree['downlines'][$id] ?? 0,
                     'level'       => 'Level ' . $depth,
                     // Level 1 came from this user directly; deeper members name

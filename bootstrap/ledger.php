@@ -27,8 +27,8 @@
  *
  * NESTING: PDO has no nested transactions. Helpers here never begin one of
  * their own -- callers own the transaction boundary. That matters because
- * referral_commission() takes further wallet locks inside the deposit
- * callback's transaction.
+ * referral_commission() takes further wallet locks inside the purchase
+ * transaction in backend/mains/invest.php.
  */
 
 /**
