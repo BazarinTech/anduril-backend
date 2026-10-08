@@ -52,6 +52,16 @@ if (isset($_POST['update'])) {
             // from this page at all.
             'level3'      => $percent($_POST['level3'] ?? null, $level3),
 
+            /**
+             * Which rail pays customers out. Only a rail we actually
+             * implement may be stored -- an unknown value would fall back to
+             * Palpluss at payout time, which is a setting that silently does
+             * something other than what the page shows.
+             */
+            'payoutProvider' => array_key_exists((string) ($_POST['payoutProvider'] ?? ''), payout_providers())
+                ? (string) $_POST['payoutProvider']
+                : payout_provider($query),
+
             // -- Claim window ----------------------------------------------
             'claimWindowOn' => isset($_POST['claimWindowOn']) ? '1' : '0',
             'claimOpensAt'  => claim_normalise_time($_POST['claimOpensAt'] ?? '', '07:00:00'),
@@ -140,6 +150,13 @@ if (isset($_POST['reset_platform'])) {
 // Counted after any reset above, so the card shows what is left.
 $reset_preview = platform_reset_preview($pdo);
 $reset_allowed = admin_can($query, 'edit') && admin_can($query, 'finance');
+
+$payout_provider  = payout_provider($query);
+$payout_statuses  = [];
+
+foreach (array_keys(payout_providers()) as $rail) {
+    $payout_statuses[$rail] = payout_provider_status($rail);
+}
 
 $claim_settings = claim_settings($query);
 $claim_state    = claim_window($claim_settings);
@@ -294,6 +311,46 @@ $claim_state    = claim_window($claim_settings);
 
                         <div class="card">
                         <form action="platform-control" method='post'>
+
+                            <!-- ============ Payout rail ============ -->
+                            <h2 class="mb-1 text-base font-semibold text-slate-800 dark:text-slate-100">Withdrawal payouts</h2>
+                            <p class="mb-4 text-sm text-muted">
+                                Which service sends money to customers. The change applies to the next
+                                payout &mdash; withdrawals already in progress settle through the service
+                                that accepted them.
+                            </p>
+
+                            <div class="space-y-1 my-4">
+                                <label for="payoutProvider">Payout service</label>
+                                <select id="payoutProvider" name="payoutProvider" class="form-input h-14">
+                                    <?php foreach (payout_providers() as $value => $name): ?>
+                                        <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $payout_provider === $value ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($name, ENT_QUOTES, 'UTF-8') ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="p-3 mb-6 border border-dashed rounded-md border-slate-200 dark:border-darkborder">
+                                <?php foreach (payout_providers() as $value => $name): ?>
+                                    <p class="text-sm <?= $value === $payout_provider ? 'font-semibold text-slate-800 dark:text-slate-100' : 'text-muted' ?>">
+                                        <?= htmlspecialchars($name, ENT_QUOTES, 'UTF-8') ?>
+                                        <?php if ($value === $payout_provider): ?>
+                                            <span class="text-success">&middot; in use</span>
+                                        <?php endif; ?>
+                                        &middot;
+                                        <span class="<?= $payout_statuses[$value]['ok'] ? 'text-success' : 'text-danger' ?>">
+                                            <?= htmlspecialchars($payout_statuses[$value]['note'], ENT_QUOTES, 'UTF-8') ?>
+                                        </span>
+                                    </p>
+                                <?php endforeach; ?>
+                                <?php if (!$payout_statuses[$payout_provider]['ok']): ?>
+                                    <p class="mt-2 text-xs text-danger">
+                                        The service in use is missing settings, so payouts will be refused until
+                                        they are added to the environment variables.
+                                    </p>
+                                <?php endif; ?>
+                            </div>
 
                             <!-- ============ Daily claim window ============ -->
                             <h2 class="mb-1 text-base font-semibold text-slate-800 dark:text-slate-100">Daily claim window</h2>

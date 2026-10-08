@@ -29,56 +29,11 @@ function create_tracking_ID() {
 // A commented-out PayHero and SwiftWallet integration used to sit here. It was dead
 // code carrying live bearer tokens and endpoint URLs in the clear, which
 // is a credential in the repository whether or not anything executes it.
-// The working implementation is mpesa_auto() below, which uses Palpluss.
-function mpesa_auto($query, $userID, $amount, $account, $api, $trackingID){
-    $headers = [
-        'Authorization: Basic ' . env('PALPLUSS_KEY')
-    ];
-    $data = [
-        "amount" => (float) $amount,
-        "phone" => $account,
-        "reference" => $trackingID,
-        "callbackUrl" => callback_url('palpluss_b2c_callback.php'),
-        "description" => "BusinessPayment"
-    ];
-    $inititate = $api->request(env('PALPLUSS_B2C_URL'), 'POST', $data, $headers);
-
-    // An unreachable provider makes Curl::request() return null, and reading
-    // ['success'] off it warned and then fell through to the generic failure.
-    // Treat "no answer" as an explicit failure so the caller refunds.
-    if (!is_array($inititate)) {
-        error_log('[withdraw] payout provider returned no parseable response');
-
-        return [
-            'status' => 'Failed',
-            'message' => 'Payment provider is unreachable. Please try again shortly.',
-        ];
-    }
-
-  if (!empty($inititate['success'])) {
-        $res = [
-            'status' => 'Success',
-            'message' => 'Mpesa transaction initiated successfully',
-        ];
-    }elseif(isset($inititate['error'])){
-        $res = [
-            'status' => 'Failed',
-            'message' => is_array($inititate['error']) ? ($inititate['error']['message'] ?? 'Payout rejected') : (string) $inititate['error'],
-        ];
-    }else{
-        $res = [
-            'status' => 'Failed',
-            'message' => 'Transaction Failed. Kindly reach our customer service for quick assistance',
-        ];
-    }
-
-    return $res;
-}
-
-// A commented-out PayHero and SwiftWallet integration used to sit here. It was dead
-// code carrying live bearer tokens and endpoint URLs in the clear, which
-// is a credential in the repository whether or not anything executes it.
-// The working implementation is mpesa_auto() below, which uses Palpluss.
+//
+// The payout itself lives in lib/payouts.php, which sends on whichever rail
+// the admin has selected on Platform Control -- Palpluss or Safaricom Daraja.
+// This file used to carry its own copy of the Palpluss call, as did
+// admin/approve-withdrawals.php, and the two had already drifted apart.
 if (isset($data)) {
     try {
         $decoded = JWT::decode(request_token($data), new Key(JWT_SECRET, JWT_ALGO));
@@ -100,8 +55,8 @@ if (isset($data)) {
          *
          * This used to store whatever the client sent -- or NULL when it sent
          * nothing, which failed the NOT NULL column. But every withdrawal is
-         * paid by mpesa_auto() through Palpluss M-Pesa, whatever was asked
-         * for, so a client-supplied value could only ever make the ledger say
+         * paid out over M-Pesa by payout_send(), whatever was asked for, so
+         * a client-supplied value could only ever make the ledger say
          * something untrue. It is no longer read from the request.
          */
         $method = 'mpesa';
@@ -237,7 +192,7 @@ if (isset($data)) {
             }
 
             // Funds are now reserved. Attempt the payout.
-            $initiate = mpesa_auto($query, $userID, $send_amount, $account, $curl, $trackingID);
+            $initiate = payout_send($query, $curl, $account, $send_amount, $trackingID);
 
             if (isset($initiate['status']) && $initiate['status'] === 'Success') {
                 // Provider accepted it. The b2c callback settles or refunds.

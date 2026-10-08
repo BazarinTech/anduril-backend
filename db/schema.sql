@@ -235,7 +235,10 @@ CREATE TABLE IF NOT EXISTS controls (
     claimOpensAt       TIME        NOT NULL DEFAULT '07:00:00',
     -- NULL means the window stays open until it next opens.
     claimClosesAt      TIME        NULL     DEFAULT NULL,
-    claimsPerDay       INT         NOT NULL DEFAULT 1
+    claimsPerDay       INT         NOT NULL DEFAULT 1,
+    -- Which rail pays customers out: 'palpluss' or 'daraja' (migration 006).
+    -- See lib/payouts.php; set from the admin Platform Control page.
+    payoutProvider     VARCHAR(20) NOT NULL DEFAULT 'palpluss'
 ) ENGINE=InnoDB;
 
 

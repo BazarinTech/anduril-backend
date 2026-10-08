@@ -39,80 +39,22 @@ $data = $fileGetContent->get_content();
         exit;
     }
 
-    //get transaction details
-    $transactions = $query->select('transactions', '*', ['trackingID' => $trackingID, 'status' => 'Processing']);
-
-    // Only a payout still in Processing can be settled or refunded. Anything
-    // else is a replay, and refunding twice would credit the user for money
-    // they already received.
-    if (empty($transactions)) {
-        error_log("[palpluss_b2c] no processing transaction for {$trackingID}; ignoring");
-        echo json_encode(['status' => 'ok', 'message' => 'No processing transaction']);
-        exit;
-    }
-
-    $transaction = $transactions[0];
-    $userID = $transaction['userID'];
-    $amount = money($transaction['amount']);
-
     /**
-     * Phase 3.2 -- the refund path is the dangerous one here.
-     *
-     * On failure this hands money back, and it did so with an unlocked
-     * read-modify-write. Two deliveries of the same failure callback could
-     * both find the row in Processing and both refund it, paying the user
-     * twice for a payout that never happened. Flipping the status inside the
-     * same transaction closes that window: the row is only selected while
-     * still Processing, so the second delivery matches nothing.
+     * Settling and refunding are shared with the Daraja callback
+     * (settle_payout() in lib/payouts.php), so both rails behave identically:
+     * the status change is the claim, so two deliveries of one failure
+     * callback cannot refund the same payout twice.
      */
-    $pdo->beginTransaction();
+    $succeeded = $status == 'SUCCESS';
+    $note      = $succeeded ? $reference : 'Payout failed; amount refunded';
 
-    try {
-        // The status change is the claim -- see claim_transaction(). Without
-        // it, simultaneous deliveries of one failure callback would each pass
-        // the 'Processing' filter above and each refund the same payout.
-        $targetStatus = ($status == 'SUCCESS') ? 'Success' : 'Failed';
-        $note = ($status == 'SUCCESS') ? $reference : 'Payout failed; amount refunded';
+    $outcome = settle_payout($pdo, $query, $trackingID, $succeeded, $note, 'palpluss_b2c');
 
-        if (!claim_transaction($pdo, $trackingID, 'Processing', $targetStatus, $note)) {
-            $pdo->rollBack();
-            error_log("[palpluss_b2c] {$trackingID} already settled; ignoring duplicate delivery");
-            echo json_encode(['status' => 'ok', 'message' => 'Already processed']);
-            exit;
-        }
-
-        if ($status == 'SUCCESS') {
-            $pdo->commit();
-
-            error_log("[palpluss_b2c] payout {$trackingID} settled");
-        }else{
-            //Give the reserved funds back
-            $wallet = wallet_for_update($pdo, $userID);
-
-            if ($wallet === null) {
-                $pdo->rollBack();
-                error_log("[palpluss_b2c] REFUND FAILED for {$trackingID}: no wallet for user {$userID}");
-                http_response_code(500);
-                echo json_encode(['status' => 'error', 'message' => 'Wallet missing']);
-                exit;
-            }
-
-            $query->update('wallets', ['balance' => money_str(money($wallet['balance']) + $amount)], ['userID' => $userID]);
-            $pdo->commit();
-
-            error_log("[palpluss_b2c] payout {$trackingID} failed; refunded {$amount} to user {$userID}");
-        }
-    } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-
-        error_log("[palpluss_b2c] could not settle {$trackingID}: " . $e->getMessage());
-
-        // Stay Processing and let the provider retry, rather than acknowledging
-        // a settlement or refund that did not happen.
+    if (!$outcome['ok']) {
+        // Stay Processing and let the provider retry, rather than
+        // acknowledging a settlement or refund that did not happen.
         http_response_code(500);
-        echo json_encode(['status' => 'error', 'message' => 'Could not settle payout']);
+        echo json_encode(['status' => 'error', 'message' => $outcome['message']]);
         exit;
     }
 

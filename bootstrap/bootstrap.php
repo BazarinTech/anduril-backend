@@ -176,6 +176,8 @@ require_once __DIR__ . '/claims.php';
 require_once __DIR__ . '/request.php';
 // Where product images live, and how to build a URL for one.
 require_once __DIR__ . '/../lib/storage.php';
+// Which rail pays customers out, and how a payout is settled.
+require_once __DIR__ . '/../lib/payouts.php';
 
 /**
  * ===========================

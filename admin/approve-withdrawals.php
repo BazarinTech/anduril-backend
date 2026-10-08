@@ -7,72 +7,13 @@ $msg = '';
 
 $isEdit = false;
 
-// A commented-out PayHero integration used to sit here. It was dead
-// code carrying live bearer tokens and endpoint URLs in the clear, which
-// is a credential in the repository whether or not anything executes it.
-// The working implementation is mpesa_auto() below, which uses Palpluss.
-    
-
-//     if (isset($initiate['error_code'])) {
-//         $msg = $initiate['error_message'];
-//         $status = 'Error';
-//     }else{
-//         $msg = "Transaction approved successfully!";
-//         $status = 'Success';
-//     }
-    
-    
-// A commented-out PayHero integration used to sit here. It was dead
-// code carrying live bearer tokens and endpoint URLs in the clear, which
-// is a credential in the repository whether or not anything executes it.
-// The working implementation is mpesa_auto() below, which uses Palpluss.
-function mpesa_auto($query, $curl, $phone, $amount, $trackingID){
-    $headers = [
-        'Authorization: Basic ' . env('PALPLUSS_KEY')
-    ];
-    $data = [
-        "amount" => (float) $amount,
-        "phone" => $phone,
-        "reference" => $trackingID,
-        "callbackUrl" => callback_url('palpluss_b2c_callback.php'),
-        "description" => "BusinessPayment"
-    ];
-
-
-    $inititate = $curl->request(env('PALPLUSS_B2C_URL'), 'POST', $data, $headers);
-
-    // An unreachable provider returns null. Treat "no answer" as an explicit
-    // failure rather than reading array keys off it (same guard as
-    // backend/mains/withdraw.php).
-    if (!is_array($inititate)) {
-        error_log('[approve-withdrawals] payout provider returned no parseable response');
-
-        return [
-            'status' => 'Failed',
-            'msg' => 'Payment provider is unreachable. Please try again shortly.',
-        ];
-    }
-
-    if (!empty($inititate['success']) && $inititate['success'] === true) {
-        $res = [
-            'status' => 'Success',
-            'msg' => 'Mpesa transaction initiated succefully',
-        ];
-    }elseif(isset($inititate['error'])){
-        $res = [
-            'status' => 'Failed',
-            'msg' => is_array($inititate['error']) ? ($inititate['error']['message'] ?? 'Payout rejected') : (string) $inititate['error'],
-        ];
-    }else{
-        $res = [
-            'status' => 'Failed',
-            'msg' => 'Transaction Failed. Kindly reach our customer service for quick assistance',
-        ];
-    }
-
-    return $res;
-}
-
+// A commented-out PayHero integration used to sit here. It was dead code
+// carrying live bearer tokens and endpoint URLs in the clear, which is a
+// credential in the repository whether or not anything executes it.
+//
+// The payout call that replaced it now lives in lib/payouts.php, shared with
+// backend/mains/withdraw.php, so an admin approval and a user-initiated
+// withdrawal always use the same rail and the same response handling.
 
 if (isset($_POST['submit'])) {
     $trackingID= $_POST['id'];
@@ -99,7 +40,10 @@ if (isset($_POST['submit'])) {
                 $error = 'Transaction is already approved!';
             }else{
                 if($method == 'mpesa'){
-                    $initiate = mpesa_auto($query, $api, $account, $amount, $trackingID);
+                    // Whichever rail Platform Control selects; the same
+                    // call a user-initiated withdrawal makes.
+                    $initiate = payout_send($query, $api, $account, $amount, $trackingID);
+                    $initiate['msg'] = $initiate['message'];
                     if($initiate['status'] == 'Success'){
                         //update transaction status
                         $query->update('transactions', ['status' => 'Processing'], ['trackingID' => $trackingID]);

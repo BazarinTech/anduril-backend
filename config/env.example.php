@@ -62,6 +62,30 @@ return [
     'PALPLUSS_B2C_BALANCE_URL'     => 'https://api.palpluss.com/v1/wallets/b2c/balance',
     'PALPLUSS_SERVICE_BALANCE_URL' => 'https://api.palpluss.com/v1/wallets/service/balance',
 
+
+    // -- Safaricom Daraja (the second M-Pesa B2C rail) ---------------------
+    // Selected from the admin Platform Control page; see lib/payouts.php.
+    // 'sandbox' or 'production'. Picks the API host unless DARAJA_BASE_URL
+    // is set explicitly.
+    'DARAJA_ENV'                 => 'sandbox',
+    'DARAJA_BASE_URL'            => '',
+    'DARAJA_CONSUMER_KEY'        => '',
+    'DARAJA_CONSUMER_SECRET'     => '',
+    // The B2C shortcode money is paid from.
+    'DARAJA_SHORTCODE'           => '',
+    // The API operator username created in the M-Pesa org portal.
+    'DARAJA_INITIATOR_NAME'      => '',
+    // The initiator password encrypted with Safaricom's public certificate
+    // for this environment, base64 encoded. Generated once, out of band --
+    // Daraja never accepts the plain password.
+    'DARAJA_SECURITY_CREDENTIAL' => '',
+    // BusinessPayment (no reason shown), SalaryPayment, or PromotionPayment.
+    'DARAJA_B2C_COMMAND_ID'      => 'BusinessPayment',
+
+    // Fallback rail when controls.payoutProvider is empty, e.g. before
+    // migration 006 has run. 'palpluss' or 'daraja'.
+    'PAYOUT_PROVIDER'            => 'palpluss',
+
     // Topping up the service wallet from admin/service-wallet.php.
     'PALPLUSS_SERVICE_TOPUP_URL'   => 'https://api.palpluss.com/v1/wallets/service/topups',
 
