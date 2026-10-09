@@ -33,6 +33,8 @@ if (isset($_POST['submit'])) {
             
             // get user details
             $user_details = $query->select('users', '*', ['ID' => $userID]);
+        $adminID = $_SESSION['userID'] ?? '?';
+
         if ($action == 'Success') {
             
             
@@ -42,6 +44,8 @@ if (isset($_POST['submit'])) {
                 if($method == 'mpesa'){
                     // Whichever rail Platform Control selects; the same
                     // call a user-initiated withdrawal makes.
+                    error_log("[approve-withdrawals] admin {$adminID} retrying payout {$trackingID} (amount {$amount})");
+
                     $initiate = payout_send($query, $api, $account, $amount, $trackingID);
                     $initiate['msg'] = $initiate['message'];
                     if($initiate['status'] == 'Success'){
@@ -50,8 +54,23 @@ if (isset($_POST['submit'])) {
                         $msg = $initiate['msg'];
                         $body = success_withdrawal_template($user_details[0]['name'], $amount, $trackingID);
                         $email_res = send_email($user_details[0]['email'], 'Withdrawal Processed Successfully', $body);
+
+                        error_log("[approve-withdrawals] {$trackingID} accepted by " . ($initiate['provider'] ?? '?'));
                     }else{
+                        /**
+                         * Still refused. The row stays Pending with the new
+                         * reason recorded, so it stays in this queue rather
+                         * than disappearing into a state nobody watches.
+                         */
+                        $query->update(
+                            'transactions',
+                            ['description' => substr('Awaiting admin approval - ' . $initiate['msg'], 0, 255)],
+                            ['trackingID' => $trackingID]
+                        );
+
                         $error = $initiate['msg'];
+
+                        error_log("[approve-withdrawals] {$trackingID} refused again: " . $initiate['msg']);
                     }
                 }else{
                     
@@ -64,15 +83,67 @@ if (isset($_POST['submit'])) {
             }
             
         }else{
-            //update transaction status
-            $query->update('transactions', ['status' => $action], ['trackingID' => $trackingID]);
-            $msg = "Transaction Rejected successfully!";
+            /**
+             * REJECT RETURNS THE MONEY.
+             *
+             * It did not. The row's status was changed and nothing else, so a
+             * rejected withdrawal left the customer's balance debited for a
+             * payout that never happened -- while the button's own
+             * confirmation said "The held amount goes back to the wallet".
+             *
+             * That matters more now that a failed payout waits here instead of
+             * refunding itself: rejecting is the only path that gives the
+             * money back.
+             *
+             * The refund is the full amount including the fee, because no
+             * payout was made and no fee was earned. claim_transaction() is
+             * the guard -- only the request that moves the row out of its
+             * current status may credit the wallet, so two admins clicking
+             * Reject cannot refund twice.
+             */
+            $refund = money($transaction['amount']);
 
-            $body = declined_withdrawal_template($user_details[0]['name'], $amount, 'Due to uknown issue that should be consulted from customer support');
-            $email_res = send_email($user_details[0]['email'], 'We are unable to process your withdrawal request', $body);
-            
+            $pdo->beginTransaction();
+
+            try {
+                if (!claim_transaction($pdo, $trackingID, $status, $action, 'Rejected by admin; amount returned')) {
+                    $pdo->rollBack();
+                    $error = 'That withdrawal has already been actioned.';
+                } else {
+                    $wallet = wallet_for_update($pdo, $userID);
+
+                    if ($wallet === null) {
+                        $pdo->rollBack();
+                        $error = 'No wallet found for that user; nothing was changed.';
+
+                        error_log("[approve-withdrawals] REFUND FAILED for {$trackingID}: no wallet for user {$userID}");
+                    } else {
+                        $query->update(
+                            'wallets',
+                            ['balance' => money_str(money($wallet['balance']) + $refund)],
+                            ['userID' => $userID]
+                        );
+
+                        $pdo->commit();
+
+                        $msg = 'Transaction rejected and Kes ' . money_str($refund) . ' returned to the wallet.';
+
+                        error_log("[approve-withdrawals] admin {$adminID} rejected {$trackingID}; refunded {$refund} to user {$userID}");
+
+                        $body = declined_withdrawal_template($user_details[0]['name'], $amount, 'Due to uknown issue that should be consulted from customer support');
+                        $email_res = send_email($user_details[0]['email'], 'We are unable to process your withdrawal request', $body);
+                    }
+                }
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                error_log("[approve-withdrawals] reject failed for {$trackingID}: " . $e->getMessage());
+                $error = 'Could not reject the withdrawal. Please try again.';
+            }
         }
-    }else{
+        }else{
         $error = 'There is no existence of transaction with that trackingID!';
     }
     
@@ -170,7 +241,7 @@ if (isset($_POST['submit'])) {
                                 'label'    => 'withdrawal',
                                 'rows'     => $withdraw_records,
                                 'key'      => 'id',
-                                'search'   => ['trackingID', 'email', 'account', 'method'],
+                                'search'   => ['trackingID', 'email', 'account', 'method', 'description'],
                                 'empty'    => 'No withdrawals are waiting for approval.',
                                 'columns'  => [
                                     ['label' => '#',          'field' => 'id'],
@@ -180,6 +251,8 @@ if (isset($_POST['submit'])) {
                                     ['label' => 'Method',     'field' => 'method'],
                                     ['label' => 'Amount To Send',  'field' => 'amount', 'numeric' => true],
                                     ['label' => 'Transaction Fees', 'field' => 'fees',  'numeric' => true],
+                                    ['label' => 'Reason',     'field' => 'description', 'wide' => true,
+                                     'hint'  => 'Why the payout has not gone out yet. A provider refusal -- an empty B2C float, for example -- lands here in the provider&rsquo;s own wording.'],
                                     ['label' => 'Time',       'field' => 'time'],
                                 ],
                                 'actions'  => [
@@ -188,7 +261,7 @@ if (isset($_POST['submit'])) {
                                      'confirm' => 'Approve withdrawal {value}? This sends the payout.'],
                                     ['label' => 'Reject',  'style' => 'danger',  'field' => 'trackingID',
                                      'post'  => ['action' => 'Declined'],
-                                     'confirm' => 'Reject withdrawal {value}? The held amount goes back to the wallet.'],
+                                     'confirm' => 'Reject withdrawal {value}? The full amount, fee included, goes back to the wallet.'],
                                 ],
                             ]);
                             ?>

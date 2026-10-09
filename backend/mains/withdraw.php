@@ -61,8 +61,21 @@ if (isset($data)) {
          */
         $method = 'mpesa';
 
+        /**
+          * One line per withdrawal attempt, before anything can refuse it.
+          *
+          * Every branch below ends the request with a message the customer
+          * sees and nothing in the log, so "withdrawals are failing" could not
+          * be traced to which check was rejecting them. Each refusal now says
+          * so, keyed by user, and the payout itself logs the provider's own
+          * answer (lib/payouts.php).
+          */
+        error_log("[withdraw] request from user {$userID}: amount=" . var_export($amount, true));
+
         // Phase 3.6 -- validate before anything touches a balance.
         if (!is_valid_amount($amount)) {
+            error_log("[withdraw] user {$userID} refused: amount is not a valid number");
+
             $fileGetContent->send_content([
                 'status' => 'Failed',
                 'message' => 'Please enter a valid amount.',
@@ -81,6 +94,8 @@ if (isset($data)) {
         $user_wallet = $user_wallet[0] ?? null;
 
         if ($user_wallet === null) {
+            error_log("[withdraw] user {$userID} refused: no wallet row");
+
             $fileGetContent->send_content([
                 'status' => 'Error',
                 'message' => 'Wallet not found.'
@@ -94,6 +109,8 @@ if (isset($data)) {
 
         // Check if withdrawal account is set
         if (empty($account) || empty($name)) {
+            error_log("[withdraw] user {$userID} refused: withdrawal account not set");
+
             $fileGetContent->send_content([
                 'status' => 'Error',
                 'message' => 'Please set your withdrawal account details before making a withdrawal.'
@@ -129,6 +146,8 @@ if (isset($data)) {
             }
 
             if ($amount < $minWithdrawal) {
+                error_log("[withdraw] user {$userID} refused: {$amount} is below the minimum {$minWithdrawal}");
+
                 $fileGetContent->send_content([
                     'status' => 'Failed',
                     'message' => 'Minimum withdrawal is kes '.$min,
@@ -166,6 +185,8 @@ if (isset($data)) {
                 if ($lockedWallet === null || $balance < $amount) {
                     $pdo->rollBack();
 
+                    error_log("[withdraw] user {$userID} refused: balance {$balance} is less than {$amount}");
+
                     $fileGetContent->send_content([
                         'status' => 'Failed',
                         'message' => 'Insuficient balance to perform this transaction!',
@@ -191,12 +212,21 @@ if (isset($data)) {
                 exit;
             }
 
+            error_log("[withdraw] {$trackingID} reserved {$amount} from user {$userID} "
+                . "(fee {$fees}, sending {$send_amount} to " . payout_mask_phone($account) . ')');
+
             // Funds are now reserved. Attempt the payout.
             $initiate = payout_send($query, $curl, $account, $send_amount, $trackingID);
 
+            error_log("[withdraw] {$trackingID} payout via " . ($initiate['provider'] ?? '?')
+                . ': ' . ($initiate['status'] ?? '?') . ' - ' . ($initiate['message'] ?? ''));
+
             if (isset($initiate['status']) && $initiate['status'] === 'Success') {
-                // Provider accepted it. The b2c callback settles or refunds.
+                // Provider accepted it. The b2c callback settles it, or
+                // queues it for an admin if the payout itself fails.
                 $query->update('transactions', ['status' => 'Processing'], ['trackingID' => $trackingID]);
+
+                error_log("[withdraw] {$trackingID} accepted by " . ($initiate['provider'] ?? '?') . '; now Processing');
 
                 $body = pending_withdrawal_template($user_details[0]['name'], money_str($amount), money_str($fees));
                 $email_res = send_email($user_details[0]['email'], 'Withdrawal Submitted Succesfully', $body);
@@ -207,39 +237,50 @@ if (isset($data)) {
                 ];
             } else {
                 /**
-                 * Provider refused it. Give the money back.
+                 * The provider refused it -- most often an empty B2C float on
+                 * our side, which has nothing to do with this customer.
                  *
-                 * The old code reported Success here regardless -- and then a
-                 * trailing `if ($initiate)` overwrote the response with Success
-                 * a second time, because $initiate is always a non-empty array.
-                 * The failure branch was unreachable.
+                 * The money STAYS reserved and the withdrawal goes to
+                 * 'Pending', which is the queue on
+                 * admin/approve-withdrawals.php. An admin tops up the float
+                 * and approves to retry, or rejects to return the funds. The
+                 * provider's own reason is stored on the row so the admin can
+                 * see why it did not go out.
+                 *
+                 * The customer is told the same thing as a successful
+                 * request. From their side nothing has gone wrong: the money
+                 * has left their balance and is on its way, which is exactly
+                 * what the normal three-hour wording already says.
                  */
-                $pdo->beginTransaction();
+                $reason = (string) ($initiate['message'] ?? 'Payout provider refused the request');
 
-                try {
-                    $refundWallet = wallet_for_update($pdo, $userID);
-                    $query->update('wallets', ['balance' => money_str(money($refundWallet['balance']) + $amount)], ['userID' => $userID]);
-                    $query->update('transactions', ['status' => 'Failed', 'description' => 'Payout rejected; amount refunded'], ['trackingID' => $trackingID]);
-                    $pdo->commit();
+                $query->update(
+                    'transactions',
+                    [
+                        'status'      => 'Pending',
+                        // Kept short: the column is VARCHAR(255) and strict
+                        // mode rejects anything longer.
+                        'description' => substr('Awaiting admin approval - ' . $reason, 0, 255),
+                    ],
+                    ['trackingID' => $trackingID]
+                );
 
-                    error_log("[withdraw] payout refused for {$trackingID}; refunded {$amount}");
-                } catch (\Throwable $e) {
-                    if ($pdo->inTransaction()) {
-                        $pdo->rollBack();
-                    }
+                error_log("[withdraw] payout refused for {$trackingID} (user {$userID}, "
+                    . "amount {$send_amount}, provider " . ($initiate['provider'] ?? '?') . "): {$reason}"
+                    . ' -- funds stay reserved, queued for admin approval');
 
-                    // The reservation stands but the refund failed. Say so
-                    // loudly -- this is the one state that needs a human.
-                    error_log("[withdraw] REFUND FAILED for {$trackingID} user {$userID} amount {$amount}: " . $e->getMessage());
-                }
+                $body = pending_withdrawal_template($user_details[0]['name'], money_str($amount), money_str($fees));
+                $email_res = send_email($user_details[0]['email'], 'Withdrawal Submitted Succesfully', $body);
 
                 $response = [
-                    'status' => 'Failed',
-                    'message' => $initiate['message'] ?? 'Withdrawal could not be processed. Your balance has not been charged.',
+                    'status' => 'Success',
+                    'message' => 'Withdrawal made succesfully, fee charge Kes '.money_str($fees).' amount to recieve kes '.money_str($send_amount).'. Expect to recieve your funds within 3hours. If not, contact our support team.'
                 ];
             }
 
         }else{
+            error_log("[withdraw] user {$userID} refused: incorrect withdrawal pin");
+
             $response = [
                         'status' => 'Failed',
                         'message' => 'Incorrect withdrawal pin.',

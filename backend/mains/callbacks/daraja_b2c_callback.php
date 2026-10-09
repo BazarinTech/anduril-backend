@@ -76,9 +76,9 @@ if ($trackingID === '') {
  * ResultCode 0 is the only success.
  *
  * A missing code is NOT treated as success: an unrecognised body must never
- * mark a payout paid. It is a failure, which refunds the customer -- the safe
- * direction, because a wrongly refunded payout is visible in the ledger and
- * recoverable, while a wrongly settled one quietly keeps the customer's money.
+ * mark a payout paid. It is a failure, which parks the withdrawal in the
+ * admin approval queue with the funds still reserved -- recoverable either
+ * way, while a wrongly settled payout quietly keeps the customer's money.
  */
 $succeeded = $resultCode !== null && (string) $resultCode === '0';
 
@@ -89,9 +89,16 @@ $receipt = (string) ($fields['TransactionReceipt'] ?? $result['TransactionID'] ?
 // withdrawal was raised, so this is a reconciliation aid, not a gate.
 $paidAmount = $fields['TransactionAmount'] ?? null;
 
+/**
+ * The failure note is what an admin reads in the approval queue, so it
+ * carries Safaricom's own wording -- "The initiator information is invalid",
+ * "insufficient balance" and so on -- rather than a generic sentence.
+ */
 $note = $succeeded
     ? ($receipt !== '' ? $receipt : 'Paid')
-    : 'Payout failed; amount refunded' . ($resultDesc !== '' ? ' (' . substr($resultDesc, 0, 120) . ')' : '');
+    : 'M-Pesa payout failed'
+        . ($resultCode !== null ? ' (code ' . $resultCode . ')' : '')
+        . ($resultDesc !== '' ? ': ' . substr($resultDesc, 0, 150) : '');
 
 $outcome = settle_payout($pdo, $query, $trackingID, $succeeded, $note, 'daraja_b2c');
 
@@ -106,8 +113,9 @@ if (!$outcome['ok']) {
 if ($outcome['outcome'] === 'settled') {
     error_log("[daraja_b2c] {$trackingID} paid, receipt {$receipt}"
         . ($paidAmount !== null ? ", amount {$paidAmount}" : ''));
-} elseif ($outcome['outcome'] === 'refunded') {
-    error_log("[daraja_b2c] {$trackingID} failed (code {$resultCode}: {$resultDesc})");
+} elseif ($outcome['outcome'] === 'queued') {
+    error_log("[daraja_b2c] {$trackingID} failed (code {$resultCode}: {$resultDesc}); "
+        . 'funds stay reserved, awaiting admin approval');
 }
 
 echo json_encode(['status' => 'ok', 'message' => $outcome['message']]);

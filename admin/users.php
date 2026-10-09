@@ -97,14 +97,15 @@ require_once __DIR__ . '/includes/main.php';
                                  'type'  => 'select',   'options' => ['Active' => 'Active', 'Inactive' => 'Inactive'],
                                  'badge' => ['Active' => 'success', '*' => 'danger']],
                                 /*
-                                 * Read-only on purpose. What is shown is the referrer's
-                                 * email, but users.upline holds their numeric ID. The old
-                                 * inline editor posted whatever you typed straight into
-                                 * that integer column, so re-pointing an upline by typing
-                                 * an address wrote a 0.
+                                 * The column shows the referrer's email; the field edits
+                                 * their numeric ID, because that is what users.upline
+                                 * holds. `value` points the editor at the raw id, which
+                                 * also makes the table reload after a save -- only the
+                                 * server can turn the new id back into an address.
                                  */
-                                ['label' => 'Upline',   'field' => 'upline',   'wide' => true,
-                                 'hint'  => 'The referrer this user signed up under. Changing it would re-point commission, so it is not editable from this table.'],
+                                ['label' => 'Upline',   'field' => 'upline', 'value' => 'upline_id', 'edit' => 'upline',
+                                 'type'  => 'number',   'wide' => true,
+                                 'hint'  => 'The referrer this user signed up under, as their user ID from the # column. 0 means no referrer. Changing it re-points future referral commission; commission already paid is not moved.'],
                                 ['label' => 'Date Joined', 'field' => 'date',
                                  'hint'  => 'Recorded when the account was created.'],
                             ],

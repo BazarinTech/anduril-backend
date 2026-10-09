@@ -46,7 +46,20 @@ $data = $fileGetContent->get_content();
      * callback cannot refund the same payout twice.
      */
     $succeeded = $status == 'SUCCESS';
-    $note      = $succeeded ? $reference : 'Payout failed; amount refunded';
+
+    // The failure note is what an admin reads in the approval queue, so it
+    // carries whatever the provider said rather than a generic sentence.
+    $reason = (string) ($data['transaction']['result_desc']
+        ?? $data['transaction']['resultDesc']
+        ?? $data['transaction']['message']
+        ?? $data['message']
+        ?? '');
+
+    $note = $succeeded
+        ? $reference
+        : 'M-Pesa payout failed'
+            . ($status !== '' ? ' (' . substr((string) $status, 0, 30) . ')' : '')
+            . ($reason !== '' ? ': ' . substr($reason, 0, 150) : '');
 
     $outcome = settle_payout($pdo, $query, $trackingID, $succeeded, $note, 'palpluss_b2c');
 

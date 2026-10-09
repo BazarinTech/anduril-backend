@@ -116,6 +116,10 @@ foreach ($users as $row) {
         'phone' => $row['phone'],
         'status' => $row['status'],
         'upline' => $upline_email,
+        // The editable value: users.upline holds an ID, the column shows the
+        // referrer's email. data-table posts `upline_id` and re-renders from
+        // the server, which is the only side that can resolve one to the other.
+        'upline_id' => $row['upline'],
         'date' => $row['date_created'],
         // Phase 2.2 -- 'password' => $row['passwrd'] used to be here, which put
         // every user's credential into the admin page's HTML. Removed; the

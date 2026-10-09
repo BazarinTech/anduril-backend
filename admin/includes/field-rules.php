@@ -42,9 +42,15 @@ if (!function_exists('admin_rule_sets')) {
                 'phone'  => ['label' => 'Phone',  'type' => 'phone', 'max' => 13,  'required' => true, 'unique' => true],
                 'status' => $status,
                 'role'   => ['label' => 'Role',   'type' => 'choice', 'options' => ['user', 'agent'], 'required' => true],
-                // `upline` is deliberately absent. The Users page marks it
-                // read-only because changing it re-points referral commission,
-                // but the endpoint still accepted it.
+                /**
+                 * The referrer's user ID, or 0 for none. The Users table shows
+                 * the referrer's email, which is why this was read-only
+                 * before: the old inline editor posted whatever was typed
+                 * straight into an INT column, so typing an address stored 0.
+                 * actions/update_user.php checks the id exists and that the
+                 * chain it creates is not a loop.
+                 */
+                'upline' => ['label' => 'Upline user ID', 'type' => 'count', 'max' => 99999999, 'required' => false],
             ],
 
             'admins' => [

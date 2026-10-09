@@ -141,6 +141,25 @@ if (!function_exists('payout_send')) {
     }
 }
 
+if (!function_exists('payout_mask_phone')) {
+    /**
+     * A phone number for the logs: enough to identify the payout when
+     * reconciling with M-Pesa, not the whole number in plain text.
+     *
+     *   254712345678 -> 254712***678
+     */
+    function payout_mask_phone($phone)
+    {
+        $phone = (string) $phone;
+
+        if (strlen($phone) <= 7) {
+            return str_repeat('*', max(0, strlen($phone) - 2)) . substr($phone, -2);
+        }
+
+        return substr($phone, 0, 6) . str_repeat('*', strlen($phone) - 9) . substr($phone, -3);
+    }
+}
+
 if (!function_exists('payout_send_palpluss')) {
     /**
      * The original rail, unchanged in behaviour.
@@ -157,11 +176,27 @@ if (!function_exists('payout_send_palpluss')) {
             'description' => 'BusinessPayment',
         ];
 
+        error_log('[payout] palpluss request ' . $trackingID . ': ' . json_encode([
+            'url'    => (string) env('PALPLUSS_B2C_URL'),
+            'amount' => (float) $amount,
+            'phone'  => payout_mask_phone($phone),
+        ]));
+
         $initiated = $api->request(env('PALPLUSS_B2C_URL'), 'POST', $data, $headers);
 
+        /**
+         * Always log the body, not only on refusal.
+         *
+         * A refused payout's reason -- "insufficient balance in the B2C
+         * wallet" is the common one -- only exists in this response. Without
+         * it the Railway log said a withdrawal failed and nothing about why,
+         * which is exactly the question being asked when one does.
+         */
+        error_log('[payout] palpluss response ' . $trackingID . ': ' . substr(json_encode($initiated), 0, 500));
+
         // An unreachable provider makes Curl::request() return null. Treat
-        // "no answer" as an explicit failure so the caller refunds, rather
-        // than reading array keys off null.
+        // "no answer" as an explicit failure, rather than reading array keys
+        // off null.
         if (!is_array($initiated)) {
             error_log('[payout] palpluss returned no parseable response for ' . $trackingID);
 
@@ -204,16 +239,28 @@ if (!function_exists('payout_send_palpluss')) {
 
 if (!function_exists('settle_payout')) {
     /**
-     * Settle or refund a payout, from either provider's callback.
+     * Settle a payout, or park a failed one for an admin, from either
+     * provider's callback.
      *
-     * The refund path is the dangerous one: it hands money back, and it used
-     * to do so with an unlocked read-modify-write, so two deliveries of one
-     * failure callback could both refund the same payout. The status change is
-     * the claim -- only the caller whose UPDATE moves the row out of
-     * 'Processing' may touch the wallet, so a replay settles nothing.
+     * WHY A FAILURE DOES NOT REFUND
+     * -----------------------------
+     * It used to: a failed payout went straight to 'Failed' and the money
+     * went back to the wallet. The common failure is a provider-side one --
+     * an empty B2C float, a rail that is briefly down -- where the customer
+     * did nothing wrong and still wants their money. Auto-refunding told them
+     * the withdrawal failed and made them start again.
+     *
+     * A failure now lands in 'Pending' with the provider's reason recorded,
+     * which is the queue on admin/approve-withdrawals.php. An admin can top up
+     * the float and Approve to retry the payout, or Reject to return the money
+     * to the wallet. The funds stay reserved until one of those happens, so
+     * the balance can never be spent twice over the same withdrawal.
+     *
+     * The status change is the claim -- only the caller whose UPDATE moves the
+     * row out of 'Processing' may act, so a replayed callback changes nothing.
      *
      * @return array{ok:bool, outcome:string, message:string}
-     *         outcome: settled | refunded | duplicate | error
+     *         outcome: settled | queued | duplicate | error
      */
     function settle_payout(PDO $pdo, $query, $trackingID, $succeeded, $note, $context = 'payout')
     {
@@ -232,7 +279,7 @@ if (!function_exists('settle_payout')) {
         $pdo->beginTransaction();
 
         try {
-            $targetStatus = $succeeded ? 'Success' : 'Failed';
+            $targetStatus = $succeeded ? 'Success' : 'Pending';
 
             if (!claim_transaction($pdo, $trackingID, 'Processing', $targetStatus, $note)) {
                 $pdo->rollBack();
@@ -241,29 +288,20 @@ if (!function_exists('settle_payout')) {
                 return ['ok' => true, 'outcome' => 'duplicate', 'message' => 'Already processed'];
             }
 
+            $pdo->commit();
+
             if ($succeeded) {
-                $pdo->commit();
-                error_log("[{$context}] payout {$trackingID} settled");
+                error_log("[{$context}] payout {$trackingID} settled for user {$userID}, amount {$amount}");
 
                 return ['ok' => true, 'outcome' => 'settled', 'message' => 'Settled'];
             }
 
-            // Give the reserved funds back.
-            $wallet = wallet_for_update($pdo, $userID);
+            // The funds stay reserved. admin/approve-withdrawals.php can retry
+            // the payout or reject it, and rejecting is what refunds.
+            error_log("[{$context}] payout {$trackingID} failed for user {$userID}, amount {$amount}; "
+                . "queued for admin approval. reason: " . $note);
 
-            if ($wallet === null) {
-                $pdo->rollBack();
-                error_log("[{$context}] REFUND FAILED for {$trackingID}: no wallet for user {$userID}");
-
-                return ['ok' => false, 'outcome' => 'error', 'message' => 'Wallet missing'];
-            }
-
-            $query->update('wallets', ['balance' => money_str(money($wallet['balance']) + $amount)], ['userID' => $userID]);
-            $pdo->commit();
-
-            error_log("[{$context}] payout {$trackingID} failed; refunded {$amount} to user {$userID}");
-
-            return ['ok' => true, 'outcome' => 'refunded', 'message' => 'Refunded'];
+            return ['ok' => true, 'outcome' => 'queued', 'message' => 'Queued for review'];
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
