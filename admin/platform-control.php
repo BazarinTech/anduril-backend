@@ -94,6 +94,65 @@ if (isset($_POST['update'])) {
 }
 
 /**
+ * INCENTIVE SALARY RUN
+ * --------------------
+ * Pays every approved applicant their incentive salary, based on the level on
+ * their wallet. See lib/incentives.php for who is picked and why a user can
+ * only be paid once in seven days.
+ *
+ * It moves money, so it needs 'finance' -- the same permission the deposit and
+ * withdrawal approval pages require.
+ */
+$disburse_error = '';
+
+if (isset($_POST['disburse_incentives'])) {
+    if (!admin_can($query, 'finance')) {
+        $disburse_error = "Paying incentives needs the 'finance' permission.";
+    } else {
+        try {
+            $run = incentive_disburse($pdo, $query, $adminID);
+
+            /**
+             * Redirect rather than render.
+             *
+             * This page is a POST handler, so re-rendering here would make a
+             * refresh re-submit the form -- and that would pay everyone a
+             * second time. The result is carried in the query string instead.
+             */
+            header('Location: platform-control?' . http_build_query([
+                'paid'    => $run['paid'],
+                'total'   => money_str($run['total']),
+                'skipped' => $run['skipped'],
+                'failed'  => $run['failed'],
+            ]));
+            exit;
+        } catch (\Throwable $e) {
+            error_log('[platform-control] incentive run failed: ' . $e->getMessage());
+            $disburse_error = 'The incentive run could not be completed. Please try again.';
+        }
+    }
+}
+
+if (isset($_GET['paid'])) {
+    $paidCount = (int) $_GET['paid'];
+    $msg = $paidCount === 0
+        ? 'No incentives were due.'
+        : 'Paid ' . number_format($paidCount) . ' user' . ($paidCount === 1 ? '' : 's')
+            . ' a total of Kes ' . htmlspecialchars((string) ($_GET['total'] ?? '0'), ENT_QUOTES, 'UTF-8') . '.';
+
+    if ((int) ($_GET['skipped'] ?? 0) > 0) {
+        $msg .= ' ' . (int) $_GET['skipped'] . ' skipped (paid within the last ' . INCENTIVE_PAY_INTERVAL_DAYS . ' days).';
+    }
+
+    if ((int) ($_GET['failed'] ?? 0) > 0) {
+        $msg .= ' ' . (int) $_GET['failed'] . ' could not be paid -- see the logs.';
+    }
+}
+
+$incentive_plan    = incentive_disbursement_plan($query);
+$can_pay_incentives = admin_can($query, 'finance');
+
+/**
  * PLATFORM RESET
  * --------------
  * Removes every non-admin user with their wallets (withdrawal accounts
@@ -451,6 +510,85 @@ $claim_state    = claim_window($claim_settings);
                                      never handled -- the handler had been commented out -- so the button
                                      did nothing at all. What it was meant to do is now the claim window
                                      above, which needs no button. */ ?>
+                        </div>
+
+                        <!-- ============ Incentive salaries ============ -->
+                        <div class="card" x-data="{ running: false }">
+                            <div class="pc-danger__head">
+                                <div>
+                                    <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">Incentive salaries</h2>
+                                    <p class="pc-danger__text">
+                                        Pays every user with an approved incentive application the salary for
+                                        their level. A user can be paid once every <?= INCENTIVE_PAY_INTERVAL_DAYS ?> days &mdash;
+                                        anyone paid more recently is skipped, so running this twice in a week
+                                        pays only those approved since.
+                                    </p>
+                                </div>
+                                <?php /* The confirm is on the form, so the button carries one
+                                         disabled state (permission / nothing due) and Alpine
+                                         only guards the double-click while it posts. */ ?>
+                                <form method="post" action="platform-control"
+                                      @submit="running = $event.defaultPrevented ? false : true"
+                                      onsubmit="return confirm('Pay <?= number_format($incentive_plan['users']) ?> user(s) a total of Kes <?= money_str($incentive_plan['total']) ?>?')">
+                                    <button type="submit" name="disburse_incentives" value="1"
+                                            class="dt-btn dt-btn--primary"
+                                            <?= $can_pay_incentives && $incentive_plan['users'] > 0 ? '' : 'disabled' ?>
+                                            :disabled="running"
+                                            x-text="running ? 'Paying...' : 'Pay incentives now'">Pay incentives now</button>
+                                </form>
+                            </div>
+
+                            <?php if ($disburse_error): ?>
+                                <p class="mt-3 bg-danger/20 text-danger text-center rounded-lg py-2 px-2">
+                                    <?= htmlspecialchars($disburse_error, ENT_QUOTES, 'UTF-8') ?>
+                                </p>
+                            <?php endif; ?>
+
+                            <div class="pc-counts">
+                                <div class="pc-count">
+                                    <div class="pc-count__value"><?= number_format($incentive_plan['users']) ?></div>
+                                    <div class="pc-count__label">Due now</div>
+                                </div>
+                                <div class="pc-count">
+                                    <div class="pc-count__value">Kes <?= money_str($incentive_plan['total']) ?></div>
+                                    <div class="pc-count__label">Total to pay</div>
+                                </div>
+                                <div class="pc-count">
+                                    <div class="pc-count__value"><?= number_format(count($incentive_plan['skipped'])) ?></div>
+                                    <div class="pc-count__label">Paid in the last <?= INCENTIVE_PAY_INTERVAL_DAYS ?> days</div>
+                                </div>
+                            </div>
+
+                            <?php if (!$can_pay_incentives): ?>
+                                <p class="pc-kept">Your admin account does not have the &lsquo;finance&rsquo; permission, so this is read-only.</p>
+                            <?php elseif ($incentive_plan['users'] === 0 && count($incentive_plan['skipped']) > 0): ?>
+                                <p class="pc-kept">
+                                    Everyone eligible has been paid within the last <?= INCENTIVE_PAY_INTERVAL_DAYS ?> days.
+                                    The next is due in
+                                    <?= (int) min(array_column($incentive_plan['skipped'], 'due_in')) ?> day(s).
+                                </p>
+                            <?php elseif ($incentive_plan['users'] === 0): ?>
+                                <p class="pc-kept">No approved incentive applications are waiting to be paid.</p>
+                            <?php else: ?>
+                                <div class="pc-kept" style="overflow-x:auto">
+                                    <table class="dt-table">
+                                        <thead><tr><th>User</th><th>Incentive</th><th>Level</th><th class="dt-numeric">Salary</th></tr></thead>
+                                        <tbody>
+                                        <?php foreach (array_slice($incentive_plan['rows'], 0, 10) as $row): ?>
+                                            <tr>
+                                                <td><?= htmlspecialchars($row['email'], ENT_QUOTES, 'UTF-8') ?></td>
+                                                <td><?= htmlspecialchars($row['incentive'], ENT_QUOTES, 'UTF-8') ?></td>
+                                                <td><?= htmlspecialchars($row['level'], ENT_QUOTES, 'UTF-8') ?></td>
+                                                <td class="dt-numeric">Kes <?= money_str($row['salary']) ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                    <?php if ($incentive_plan['users'] > 10): ?>
+                                        <p class="mt-2 text-xs text-muted">and <?= number_format($incentive_plan['users'] - 10) ?> more.</p>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
                         </div>
 
                         <!-- ============ Danger zone: platform reset ============ -->
