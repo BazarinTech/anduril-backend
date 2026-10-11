@@ -230,8 +230,11 @@ if (!function_exists('s3_request')) {
             CURLOPT_HTTPHEADER     => $curlHeaders,
             // Uploads are small (a 500x500 image), and a stalled bucket must
             // not hold an admin request open for the curl default of forever.
-            CURLOPT_TIMEOUT        => (int) env('S3_TIMEOUT', 20),
-            CURLOPT_CONNECTTIMEOUT => 5,
+            // A caller may pass a shorter one in $cfg -- the admin health
+            // check does, because a page render must not wait as long as an
+            // image upload may.
+            CURLOPT_TIMEOUT        => (int) ($cfg['timeout'] ?? env('S3_TIMEOUT', 20)),
+            CURLOPT_CONNECTTIMEOUT => (int) ($cfg['connect_timeout'] ?? 5),
         ]);
 
         if (strtoupper($method) === 'PUT') {

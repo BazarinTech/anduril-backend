@@ -201,9 +201,42 @@ if (!function_exists('storage_health')) {
      * from a working one without uploading a real product image and wondering
      * why it did not appear.
      *
-     * @return array{ok:bool, driver:string, detail:string}
+     * CACHED, because this is called while rendering admin/products.php. It
+     * costs three calls to the bucket -- a write, a read and a delete -- and
+     * at the upload timeout that is up to a minute of an admin staring at a
+     * blank page if the bucket is unreachable. The answer changes only when
+     * the configuration does, so a few minutes of staleness costs nothing.
+     *
+     * @param int $ttl Seconds to reuse the previous answer. 0 forces a check.
+     *
+     * @return array{ok:bool, driver:string, detail:string, checked_at:string}
      */
-    function storage_health()
+    function storage_health($ttl = null)
+    {
+        $ttl = $ttl === null ? (int) env('STORAGE_HEALTH_TTL', 300) : (int) $ttl;
+
+        $cacheFile = sys_get_temp_dir() . '/storage-health-'
+            . substr(hash('sha256', (string) env('S3_ENDPOINT', '') . '|' . (string) env('S3_BUCKET', '') . '|' . storage_driver()), 0, 16) . '.json';
+
+        if ($ttl > 0 && is_file($cacheFile) && (time() - filemtime($cacheFile)) < $ttl) {
+            $cached = json_decode((string) file_get_contents($cacheFile), true);
+
+            if (is_array($cached) && isset($cached['ok'])) {
+                return $cached;
+            }
+        }
+
+        $result = storage_health_check();
+
+        @file_put_contents($cacheFile, json_encode($result));
+
+        return $result;
+    }
+}
+
+if (!function_exists('storage_health_check')) {
+    /** The live check itself. storage_health() is the cached wrapper. */
+    function storage_health_check()
     {
         $driver = storage_driver();
 
@@ -229,15 +262,19 @@ if (!function_exists('storage_health')) {
             ];
         }
 
+        // Short timeouts: this runs while a page is rendering.
+        $cfg['timeout']         = (int) env('S3_HEALTH_TIMEOUT', 4);
+        $cfg['connect_timeout'] = 3;
+
         $key   = storage_prefix() . '.healthcheck-' . bin2hex(random_bytes(4));
-        $put   = s3_request('PUT', $key, 'ok', ['Content-Type' => 'text/plain']);
+        $put   = s3_request('PUT', $key, 'ok', ['Content-Type' => 'text/plain'], $cfg);
 
         if (!$put['ok']) {
             return ['ok' => false, 'driver' => 's3', 'detail' => 'Write failed: ' . $put['error']];
         }
 
-        $get = s3_request('GET', $key);
-        s3_delete($key);
+        $get = s3_request('GET', $key, '', [], $cfg);
+        s3_delete($key, $cfg);
 
         if (!$get['ok']) {
             return ['ok' => false, 'driver' => 's3', 'detail' => 'Wrote but could not read back: ' . $get['error']];

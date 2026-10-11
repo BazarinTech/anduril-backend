@@ -70,6 +70,9 @@
  *   confirm   Confirmation prompt. '{value}' is replaced with the id posted.
  *   show      false to omit the button entirely (permission gating).
  *
+ * 'note' (top-level): a line shown beside the search box, for saying what the
+ * table is not showing -- e.g. that only the most recent rows are loaded.
+ *
  * IMAGE UPLOAD (optional, one per table)
  * -------------------------------------
  *     'image' => [
@@ -103,6 +106,7 @@ if (!function_exists('data_table')) {
         $canEdit  = !empty($config['can_edit']) && $update !== null;
         $canDelete = !empty($config['can_delete']) && $resource !== null;
         $emptyText = $config['empty'] ?? 'Nothing to show yet.';
+        $note      = trim((string) ($config['note'] ?? ''));
 
         // Only actions whose `show` is not explicitly false reach the browser.
         // Gating in PHP rather than with a `hidden` class means an admin
@@ -164,6 +168,9 @@ if (!function_exists('data_table')) {
                    placeholder="Search <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>s..."
                    aria-label="Search <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>s">
         </div>
+        <?php if ($note !== ''): ?>
+            <div class="dt-note"><?= htmlspecialchars($note, ENT_QUOTES, 'UTF-8') ?></div>
+        <?php endif; ?>
         <div class="dt-count">
             <span x-text="filteredItems.length"></span>
             <span x-text="filteredItems.length === 1 ? '<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>' : '<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>s'"></span>

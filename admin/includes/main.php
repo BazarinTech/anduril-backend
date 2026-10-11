@@ -53,60 +53,121 @@ $isAdd = in_array('add', $perm_array);
 $isView = in_array('view', $perm_array);
 $isFinance = in_array('finance', $perm_array);
 
-//total balances
-$wallets = $query->select('wallets', '*', [], ['column' => 'ID', 'direction' => 'desc']);
-$total_balance = 0;
-foreach ($wallets as $row) {
-    $total_balance += $row['balance'];
-}
+/**
+ * ===========================================================================
+ * WHY THIS FILE READS THE WAY IT DOES
+ * ===========================================================================
+ * Every admin page includes this file, and it used to issue one query per row
+ * it displayed: an upline lookup per user, two per wallet, two per order, one
+ * per transaction. On a live database that was ~36,000 queries for a single
+ * page load -- about eight seconds against a local socket, and well past
+ * Cloudflare's 100-second limit against a database on another host, which is
+ * what made the whole panel answer with a 524 while the API stayed fine.
+ *
+ * Two rules keep it fast, and both matter more as the platform grows:
+ *
+ *   1. Totals are counted by the database (COUNT/SUM), not by loading every
+ *      row into PHP and adding them up.
+ *   2. Anything looked up per row -- a user's email, a product's name -- is
+ *      fetched once into a map and read from memory inside the loop.
+ *
+ * The cost of a page load is now a fixed handful of queries no matter how
+ * many users, orders or transactions exist.
+ */
 
-//total deposits
-$total_deposits_transactions =  $query->select('transactions', '*', ['type' => 'Deposit', 'status' => 'Success']);
-$total_deposits = 0;
-$dep_count = count($total_deposits_transactions);
-foreach ($total_deposits_transactions as $row) {
-    $total_deposits += $row['amount'];
-}
+/** One scalar from an aggregate query. */
+$scalar = function ($sql, array $params = []) use ($pdo) {
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
 
-//total withdrawals
-$total_withdrawals_transactions =  $query->select('transactions', '*', ['type' => 'Withdraw', 'status' => 'Success']);
-$total_withdrawals = 0;
-$with_count = count($total_withdrawals_transactions);
-foreach ($total_withdrawals_transactions as $row) {
-    $total_withdrawals += $row['amount'];
-}
-
-//total users
-$total_users = count($query->select('users'));
-
-//total active users
-$total_active_users = count($query->select('users', '*', ['status' => 'Active']));
-
-//users joined today
-$users = $query->select('users', '*', [], ['column' => 'ID', 'direction' => 'desc']);
-$users_joined_today = 0;
-foreach ($users as $row) {
-    // 86400 seconds in a day. This read 84600 -- a digit transposition that
-    // shortened the window by half an hour. Combined with the timezone skew
-    // fixed in Phase 2, this counter was reporting nonsense; it works now.
-    $time_def = (time() - strtotime($row['date_created'])) / 86400;
-    if ($time_def <= 1) {
-        $users_joined_today++;
-    }
+    return $stmt->fetchColumn();
 };
 
-// GET ALL TABLES RECORDS DETAILS
+/**
+ * The biggest tables are capped rather than rendered whole.
+ *
+ * data_table() ships every row it is given to the browser inside the page,
+ * so an unbounded list is both a large query and a megabytes-wide HTML
+ * attribute -- 24,000 transactions cost 60 MB of PHP memory against a 128 MB
+ * limit. The newest rows are the ones an admin acts on; older ones are still
+ * in the database and in the record's own page.
+ */
+$admin_table_limit = max(50, (int) env('ADMIN_TABLE_LIMIT', 1000));
+
+//total balances
+$total_balance = (float) $scalar("SELECT COALESCE(SUM(balance), 0) FROM wallets");
+
+//total deposits
+$total_deposits = (float) $scalar("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'Deposit' AND status = 'Success'");
+$dep_count      = (int) $scalar("SELECT COUNT(*) FROM transactions WHERE type = 'Deposit' AND status = 'Success'");
+
+//total withdrawals
+$total_withdrawals = (float) $scalar("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'Withdraw' AND status = 'Success'");
+$with_count        = (int) $scalar("SELECT COUNT(*) FROM transactions WHERE type = 'Withdraw' AND status = 'Success'");
+
+//total users
+$total_users = (int) $scalar("SELECT COUNT(*) FROM users");
+
+//total active users
+$total_active_users = (int) $scalar("SELECT COUNT(*) FROM users WHERE status = 'Active'");
+
+//users joined today
+// 86400 seconds in a day. This read 84600 -- a digit transposition that
+// shortened the window by half an hour. Combined with the timezone skew fixed
+// in Phase 2, this counter was reporting nonsense; it works now. The window is
+// applied by the database rather than by walking every user in PHP.
+$users_joined_today = (int) $scalar("SELECT COUNT(*) FROM users WHERE date_created >= (NOW() - INTERVAL 1 DAY)");
+
+/**
+ * ===========================
+ * SHARED LOOKUPS
+ * ===========================
+ * Loaded once here, read from memory by every loop below.
+ */
+$users = $query->select('users', '*', [], ['column' => 'ID', 'direction' => 'desc']);
+
+$users_by_id = [];
+foreach ($users as $row) {
+    $users_by_id[(string) $row['ID']] = $row;
+}
+
+/** A user's email, or a placeholder when the account has been deleted. */
+$email_of = function ($userID) use (&$users_by_id) {
+    return $users_by_id[(string) $userID]['email'] ?? '(user removed)';
+};
+
+$wallets = $query->select('wallets', '*', [], ['column' => 'ID', 'direction' => 'desc']);
+
+$products = $query->select('products');
+
+$products_by_id = [];
+foreach ($products as $row) {
+    $products_by_id[(string) $row['ID']] = $row;
+}
+
+/**
+ * Settled deposit and withdrawal totals per user, in one grouped query
+ * instead of one query per wallet.
+ */
+$settled_by_user = [];
+$stmt = $pdo->query(
+    "SELECT userID, type, COALESCE(SUM(amount), 0) AS total
+       FROM transactions
+      WHERE status = 'Success' AND type IN ('Deposit', 'Withdraw')
+      GROUP BY userID, type"
+);
+
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    $settled_by_user[(string) $row['userID']][$row['type']] = (float) $row['total'];
+}
+
+// GET ALL TABLES RECORDS DETAILS// GET ALL TABLES RECORDS DETAILS
 
 //users records
 $users_records = [];
 foreach ($users as $row) {
-    $upline_user = $query->select('users', '*', ['ID' => $row['upline']]);
-    $upline_num = count($upline_user);
-    if ($upline_num) {
-        $upline_email = $upline_user[0]['email'];
-    }else{
-        $upline_email = '';
-    }
+    // Was a query per user. The map above already holds every account.
+    $upline_email = $users_by_id[(string) $row['upline']]['email'] ?? '';
 
     $users_records[] = [
         'id' => $row['ID'],
@@ -132,20 +193,14 @@ foreach ($users as $row) {
 //wallets records
 $wallets_records = [];
 foreach ($wallets as $row) {
-    $user_transactions = $query->select('transactions', '*', ['userID' => $row['userID'], 'status' => 'Success']);
-    $user_details = $query->select('users', '*', ['ID' => $row['userID']]);
-    $withs = 0;
-    $deps = 0;
-    foreach ($user_transactions as $transaction) {
-       if ($transaction['type'] == 'Deposit') {
-        $deps += $transaction['amount'];
-       }elseif ($transaction['type'] == 'Withdraw') {
-        $withs += $transaction['amount'];
-       }
-    }
+    // Was two queries per wallet; both come from the lookups above.
+    $settled = $settled_by_user[(string) $row['userID']] ?? [];
+    $deps  = $settled['Deposit'] ?? 0;
+    $withs = $settled['Withdraw'] ?? 0;
+
     $wallets_records[] = [
         'id' => $row['ID'],
-        'email' => $user_details[0]['email'] ?? '(user removed)',
+        'email' => $email_of($row['userID']),
         'balance' => 'Kes '.number_format($row['balance'], 2),
         'income' => 'Kes '.number_format($row['income'], 2),
         'downline' => 'Kes '.number_format($row['invite_income'], 2),
@@ -167,27 +222,28 @@ foreach ($wallets as $row) {
 // by accident, and orders.php rendered an undefined variable whenever there
 // were no investment orders at all.
 $orders_records = [];
-$orders = $query->select('orders', '*', ['type' => 'investment'], ['column' => 'ID', 'direction' => 'desc']);
+$orders_total = (int) $scalar("SELECT COUNT(*) FROM orders WHERE type = 'investment'");
+$orders = $query->select('orders', '*', ['type' => 'investment'], ['column' => 'ID', 'direction' => 'desc'], $admin_table_limit);
 foreach ($orders as $row) {
-    $product = $query->select('products', '*', ['ID' => $row['prodID']]);
-    $user_prod = $query->select('users', '*', ['ID' => $row['userID']]);
+    // Was two queries per order; both come from the lookups above.
+    $product = $products_by_id[(string) $row['prodID']] ?? null;
+
     $orders_records[] = [
         'id' => $row['ID'],
         // A deleted user or product leaves the order behind; render a
         // placeholder instead of dereferencing a missing row.
-        'name' => $product[0]['name'] ?? '(product removed)',
-        'user' => $user_prod[0]['email'] ?? '(user removed)',
+        'name' => $product['name'] ?? '(product removed)',
+        'user' => $email_of($row['userID']),
         'price' => 'Kes '.number_format(money($row['amount']), 2),
         'income' => 'Kes '.number_format(money($row['returns']), 2),
         'status' => $row['status'],
         'time' => $row['time'],
-        'rate' => $product[0]['returns'] ?? 0
+        'rate' => $product['returns'] ?? 0
     ];
 }
 
 //products records
 $products_records = [];
-$products = $query->select('products');
 foreach ($products as $row) {
     $products_records[] = [
         'id' => $row['ID'],
@@ -224,12 +280,13 @@ foreach ($bonus as $row) {
 
 //transaction records
 $transactions_records = [];
-$transactions = $query->select('transactions', '*', [], ['column' => 'ID', 'direction' => 'desc']);
+$transactions_total = (int) $scalar("SELECT COUNT(*) FROM transactions");
+$transactions = $query->select('transactions', '*', [], ['column' => 'ID', 'direction' => 'desc'], $admin_table_limit);
 foreach ($transactions as $row) {
-    $user_trans = $query->select('users', '*', ['ID' => $row['userID']]);
+    // Was a query per transaction -- the single biggest cost on this page.
     $transactions_records[] = [
         'id' => $row['ID'],
-        'email' => $user_trans[0]['email'] ?? '(user removed)',
+        'email' => $email_of($row['userID']),
         'amount' => 'Kes '.$row['amount'],
         'type' => $row['type'],
         'status' => $row['status'],
@@ -258,12 +315,26 @@ foreach ($transactions as $row) {
 function pending_queue_records($query, array $where)
 {
     $records = [];
+    $rows    = $query->select('transactions', '*', $where, ['column' => 'ID', 'direction' => 'desc']);
 
-    foreach ($query->select('transactions', '*', $where, ['column' => 'ID', 'direction' => 'desc']) as $row) {
-        $user_trans = $query->select('users', '*', ['ID' => $row['userID']]);
+    // One query for the owners of the whole queue, rather than one per row.
+    $emails = [];
+    foreach ($rows as $row) {
+        $emails[(string) $row['userID']] = null;
+    }
+
+    if ($emails) {
+        foreach ($query->select('users') as $user) {
+            if (array_key_exists((string) $user['ID'], $emails)) {
+                $emails[(string) $user['ID']] = $user['email'];
+            }
+        }
+    }
+
+    foreach ($rows as $row) {
         $records[] = [
             'id' => $row['ID'],
-            'email' => $user_trans[0]['email'] ?? '(user removed)',
+            'email' => $emails[(string) $row['userID']] ?? '(user removed)',
             'amount' => 'Kes '.$row['amount'] - $row['fees'],
             'type' => $row['type'],
             'status' => $row['status'],
@@ -313,7 +384,6 @@ $transaction_account = $transaction_controls['transactionAccount'];
 $admins_records = [];
 $admins = $query->select('admins');
 foreach ($admins as $row) {
-    $user_admin = $query->select('users', '*', ['ID' => $row['userID']]);
     $admins_records[] = [
         'id' => $row['ID'],
         'username' => $row['username'],
@@ -330,17 +400,32 @@ function incentive_application_records($query)
 {
     $records = [];
 
-    foreach ($query->select('incentives_requests', '*', ['status' => 'Pending']) as $row) {
-        $incentive_details = $query->select('incentives', '*', ['ID' => $row['incentiveID']]);
-        $user_details = $query->select('users', '*', ['ID' => $row['userID']]);
+    $requests = $query->select('incentives_requests', '*', ['status' => 'Pending']);
+
+    if (empty($requests)) {
+        return $records;
+    }
+
+    // Two maps instead of two queries per application.
+    $incentive_names = [];
+    foreach ($query->select('incentives') as $incentive) {
+        $incentive_names[(string) $incentive['ID']] = $incentive['name'];
+    }
+
+    $emails = [];
+    foreach ($query->select('users') as $user) {
+        $emails[(string) $user['ID']] = $user['email'];
+    }
+
+    foreach ($requests as $row) {
         $records[] = [
             'ID' => $row['ID'],
             // Was 'Incentive'. The table renders item.incentive, and JS keys
             // are case-sensitive, so the column came up blank on every row.
-            'incentive' => $incentive_details[0]['name'] ?? '(incentive removed)',
+            'incentive' => $incentive_names[(string) $row['incentiveID']] ?? '(incentive removed)',
             'name' => $row['name'],
             'phone' => $row['phone'],
-            'email' => $user_details[0]['email'] ?? '(user removed)',
+            'email' => $emails[(string) $row['userID']] ?? '(user removed)',
             'personal_ID' => $row['personal_ID'],
             'date' => $row['date'],
             'status' => $row['status']

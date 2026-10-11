@@ -78,6 +78,7 @@
                                 'can_edit'   => $isEdit,
                                 'can_delete' => $isEdit,
                                 'search'     => ['name', 'user', 'status'],
+                                'note'       => $orders_total > count($orders_records) ? 'Showing the most recent ' . number_format(count($orders_records)) . ' of ' . number_format($orders_total) . ' orders.' : '',
                                 'empty'      => 'No investment orders yet.',
                                 'columns'    => [
                                     ['label' => '#',    'field' => 'id'],

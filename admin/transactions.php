@@ -78,6 +78,7 @@
                                 'can_edit'   => $isEdit,
                                 'can_delete' => $isEdit,
                                 'search'     => ['email', 'account', 'type', 'status', 'description'],
+                                'note'       => $transactions_total > count($transactions_records) ? 'Showing the most recent ' . number_format(count($transactions_records)) . ' of ' . number_format($transactions_total) . ' transactions.' : '',
                                 'empty'      => 'No transactions recorded yet.',
                                 'columns'    => [
                                     ['label' => '#',     'field' => 'id'],
