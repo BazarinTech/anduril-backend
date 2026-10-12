@@ -198,7 +198,8 @@ if (!function_exists('incentive_disburse')) {
                 if ($wallet === null) {
                     $pdo->rollBack();
                     $failed++;
-                    $errors[] = 'No wallet for user ' . $userID;
+                    $errors[] = 'user ' . $userID . ' (' . $row['email'] . ') has no wallet row';
+                    error_log('[incentive-disburse] user ' . $userID . ' has no wallet; skipped');
                     continue;
                 }
 

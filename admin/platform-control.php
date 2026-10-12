@@ -106,8 +106,19 @@ if (isset($_POST['update'])) {
 $disburse_error = '';
 
 if (isset($_POST['disburse_incentives'])) {
+    /**
+     * Logged the moment the post arrives, before any check can turn it away.
+     *
+     * Without this, "I clicked and nothing happened" left nothing in the
+     * Railway log to separate "the click never reached PHP" from "it reached
+     * PHP and was refused".
+     */
+    error_log('[incentive-disburse] run requested by admin ' . $adminID
+        . ' (finance=' . (admin_can($query, 'finance') ? 'yes' : 'no') . ')');
+
     if (!admin_can($query, 'finance')) {
         $disburse_error = "Paying incentives needs the 'finance' permission.";
+        error_log('[incentive-disburse] refused: admin ' . $adminID . " lacks 'finance'");
     } else {
         try {
             $run = incentive_disburse($pdo, $query, $adminID);
@@ -124,11 +135,16 @@ if (isset($_POST['disburse_incentives'])) {
                 'total'   => money_str($run['total']),
                 'skipped' => $run['skipped'],
                 'failed'  => $run['failed'],
+                // The first failure's reason, so a run that pays nobody says
+                // why on the page instead of only in the logs.
+                'why'     => $run['errors'][0] ?? '',
             ]));
             exit;
         } catch (\Throwable $e) {
             error_log('[platform-control] incentive run failed: ' . $e->getMessage());
-            $disburse_error = 'The incentive run could not be completed. Please try again.';
+            // The reason is shown, not swallowed: "please try again" on its
+            // own is indistinguishable from the button doing nothing.
+            $disburse_error = 'The incentive run could not be completed: ' . $e->getMessage();
         }
     }
 }
@@ -145,7 +161,16 @@ if (isset($_GET['paid'])) {
     }
 
     if ((int) ($_GET['failed'] ?? 0) > 0) {
-        $msg .= ' ' . (int) $_GET['failed'] . ' could not be paid -- see the logs.';
+        $failedCount = (int) $_GET['failed'];
+        $why = is_string($_GET['why'] ?? null) ? trim($_GET['why']) : '';
+
+        // A failure is an error, not a footnote on a success message.
+        $disburse_error = $failedCount . ' user' . ($failedCount === 1 ? '' : 's')
+            . ' could not be paid' . ($why !== '' ? ': ' . substr($why, 0, 200) : '. See the logs.');
+
+        if ($paidCount === 0) {
+            $msg = '';
+        }
     }
 }
 
@@ -524,16 +549,38 @@ $claim_state    = claim_window($claim_settings);
                                         pays only those approved since.
                                     </p>
                                 </div>
-                                <?php /* The confirm is on the form, so the button carries one
-                                         disabled state (permission / nothing due) and Alpine
-                                         only guards the double-click while it posts. */ ?>
+                                <?php
+                                /**
+                                 * ONE source of truth for whether the button works.
+                                 *
+                                 * It had two: PHP wrote `disabled` when the admin lacked
+                                 * 'finance' or nothing was due, and Alpine then bound
+                                 * `:disabled="running"` over it -- which, with running
+                                 * false, REMOVED the attribute. The button looked and
+                                 * behaved as enabled for an admin who was not allowed to
+                                 * press it, the post was refused server-side, and the only
+                                 * sign was a message further down the page.
+                                 */
+                                $pay_blocked = !$can_pay_incentives
+                                    ? 'Your admin account does not have the \'finance\' permission.'
+                                    : ($incentive_plan['users'] === 0 ? 'Nobody is due right now.' : '');
+                                ?>
                                 <form method="post" action="platform-control"
                                       @submit="running = $event.defaultPrevented ? false : true"
                                       onsubmit="return confirm('Pay <?= number_format($incentive_plan['users']) ?> user(s) a total of Kes <?= money_str($incentive_plan['total']) ?>?')">
+                                    <?php /* The flag is a hidden field, not only the button's
+                                             own name=value. A button contributes its value
+                                             only when the submit comes from activating that
+                                             button; anything else -- a script calling
+                                             submit(), Enter in a field -- posts the form
+                                             without it, and the handler would then see a
+                                             plain reload and do nothing. */ ?>
+                                    <input type="hidden" name="disburse_incentives" value="1">
                                     <button type="submit" name="disburse_incentives" value="1"
                                             class="dt-btn dt-btn--primary"
-                                            <?= $can_pay_incentives && $incentive_plan['users'] > 0 ? '' : 'disabled' ?>
-                                            :disabled="running"
+                                            :disabled="running || <?= $pay_blocked === '' ? 'false' : 'true' ?>"
+                                            <?= $pay_blocked === '' ? '' : 'disabled' ?>
+                                            <?= $pay_blocked === '' ? '' : 'title="' . htmlspecialchars($pay_blocked, ENT_QUOTES, 'UTF-8') . '"' ?>
                                             x-text="running ? 'Paying...' : 'Pay incentives now'">Pay incentives now</button>
                                 </form>
                             </div>
