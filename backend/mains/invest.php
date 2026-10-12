@@ -86,19 +86,16 @@ if (isset($data['userID'])) {
         if ($amount >= money($min)) {
             if ($amount <= money($max)) {
 
-                // Phase 3.2 -- lock the wallet, then check and debit. Reading
-                // the balance before the lock is what let two simultaneous
-                // purchases both pass an "enough balance" check.
+                // Phase 3.2 -- check and debit in one statement. Reading the
+                // balance and comparing it here let two simultaneous purchases
+                // both pass an "enough balance" check and spend the same
+                // money; wallet_debit() closes that window on any engine, with
+                // or without the row lock. See bootstrap/ledger.php.
                 $pdo->beginTransaction();
 
                 try {
-                    $wallet = wallet_for_update($pdo, $userID);
-                    $user_balance = money($wallet['balance'] ?? 0);
-
-                    if ($wallet !== null && $user_balance >= $amount) {
-                        $user_balance -= $amount;
+                    if (wallet_debit($pdo, $userID, $amount)) {
                         $insert_orders = $query->insert('orders', ['type' => 'investment', 'userID' => $userID, 'remaining' => $product['duration'], 'returns' => '0', 'amount' => money_str($amount), 'prodID' => $prodID, 'duration' => $product['duration']]);
-                        $update_wallet = $query->update('wallets', ['balance' => money_str($user_balance)], ['userID' => $userID]);
 
                         if($prodID != 1){
                             $update_user_status = $query->update('users', ['status' => 'Active'], ['ID' => $userID]);

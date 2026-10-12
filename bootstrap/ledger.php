@@ -90,6 +90,100 @@ if (!function_exists('wallets_for_update')) {
  *
  * Returns true for the caller that won the claim, false for everyone else.
  */
+if (!function_exists('wallet_debit')) {
+    /**
+     * Take money off a wallet in ONE statement, or not at all.
+     *
+     * WHY THIS EXISTS
+     * ---------------
+     * Every debit used to be read-check-write: read the balance, compare it
+     * in PHP, write the difference back. Three requests that arrive together
+     * -- a user tapping withdraw on three phones, which is what happens when
+     * the first tap seems not to respond -- all read the same 500 before any
+     * of them has written anything, all pass the check, and all pay out. The
+     * balance ends at 0 having sent 1,500.
+     *
+     * wallet_for_update() was meant to prevent that, and does on InnoDB. But
+     * it is a guard that can be lost quietly: a table that is not InnoDB
+     * ignores row locks and transactions without raising a single error, and
+     * so does any future caller that forgets the transaction.
+     *
+     * This makes the check and the write the same statement. The database
+     * decides, atomically, whether the balance was sufficient -- there is no
+     * window between deciding and writing for a second request to fit into.
+     * It holds on any storage engine, with or without a surrounding
+     * transaction, which is what makes it the primary defence rather than
+     * another layer on top of one.
+     *
+     * CASTS, NOT COMPARISONS
+     * `wallets.balance` is a VARCHAR, so `balance >= :amount` would compare
+     * two strings: '500' >= '1000' is TRUE, because '5' sorts after '1'. Both
+     * sides are cast to DECIMAL so the comparison is arithmetic. The result is
+     * written back with two decimal places, which is the format the column has
+     * always held and fits VARCHAR(10) for any balance under ten million.
+     *
+     * @return bool True when the money was taken. False means the balance was
+     *              too small (or the wallet is missing) and NOTHING changed.
+     */
+    function wallet_debit(PDO $pdo, $userID, $amount)
+    {
+        $amount = money($amount);
+
+        // A zero or negative debit would "succeed" without changing a row,
+        // and rowCount() cannot tell that apart from a refusal.
+        if ($amount <= 0) {
+            return false;
+        }
+
+        $stmt = $pdo->prepare(
+            "UPDATE wallets
+                SET balance = CAST(CAST(balance AS DECIMAL(20,2)) - CAST(:amount AS DECIMAL(20,2)) AS CHAR)
+              WHERE userID = :userID
+                AND CAST(balance AS DECIMAL(20,2)) >= CAST(:required AS DECIMAL(20,2))"
+        );
+
+        $stmt->execute([
+            ':amount'   => money_str($amount),
+            ':required' => money_str($amount),
+            ':userID'   => $userID,
+        ]);
+
+        return $stmt->rowCount() === 1;
+    }
+}
+
+if (!function_exists('wallet_credit')) {
+    /**
+     * Add money to a wallet in one statement.
+     *
+     * The mirror of wallet_debit(). A credit has no condition to fail, but
+     * reading a balance and writing a sum back loses one of two simultaneous
+     * credits -- a payout refund landing at the same moment as a daily return
+     * would keep only whichever wrote last. Incrementing in the database keeps
+     * both.
+     *
+     * @return bool True when a wallet row was updated.
+     */
+    function wallet_credit(PDO $pdo, $userID, $amount)
+    {
+        $amount = money($amount);
+
+        if ($amount <= 0) {
+            return false;
+        }
+
+        $stmt = $pdo->prepare(
+            "UPDATE wallets
+                SET balance = CAST(CAST(balance AS DECIMAL(20,2)) + CAST(:amount AS DECIMAL(20,2)) AS CHAR)
+              WHERE userID = :userID"
+        );
+
+        $stmt->execute([':amount' => money_str($amount), ':userID' => $userID]);
+
+        return $stmt->rowCount() === 1;
+    }
+}
+
 if (!function_exists('claim_order_roll')) {
     function claim_order_roll(PDO $pdo, $orderID, $userID)
     {

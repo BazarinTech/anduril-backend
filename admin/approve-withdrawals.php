@@ -38,8 +38,26 @@ if (isset($_POST['submit'])) {
         if ($action == 'Success') {
             
             
+            /**
+             * Only a withdrawal that is still holding the user's money may be
+             * paid.
+             *
+             * This used to refuse 'Success' and 'Processing' and approve
+             * anything else -- including 'Declined' and 'Failed', whose funds
+             * have already gone back to the wallet. Approving one of those
+             * paid out cash the user still held as balance, from a single
+             * click, with no concurrency needed.
+             *
+             * 'Pending' is the queue this page exists to work through: the
+             * funds are reserved and no payout has gone out.
+             */
             if($status == 'Success' || $status == 'Processing'){
                 $error = 'Transaction is already approved!';
+            }elseif($status != 'Pending'){
+                $error = 'This withdrawal is ' . $status . ', so the amount has already gone back to the wallet. '
+                    . 'It cannot be paid again -- the user must request a new withdrawal.';
+
+                error_log("[approve-withdrawals] admin {$adminID} tried to approve {$trackingID} in status {$status}; refused");
             }else{
                 if($method == 'mpesa'){
                     // Whichever rail Platform Control selects; the same
@@ -118,11 +136,10 @@ if (isset($_POST['submit'])) {
 
                         error_log("[approve-withdrawals] REFUND FAILED for {$trackingID}: no wallet for user {$userID}");
                     } else {
-                        $query->update(
-                            'wallets',
-                            ['balance' => money_str(money($wallet['balance']) + $refund)],
-                            ['userID' => $userID]
-                        );
+                        // Incremented in the database rather than read-and-written,
+                        // so a refund landing at the same moment as any other
+                        // credit cannot overwrite it. See bootstrap/ledger.php.
+                        wallet_credit($pdo, $userID, $refund);
 
                         $pdo->commit();
 

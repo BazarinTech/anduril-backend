@@ -168,18 +168,20 @@ if (isset($data)) {
                 exit;
             }
 
-            $balance = money($senderWallet['balance']);
-
-            //check if user account balance is sufficient
-            if($balance >= $total_charge){
+            /**
+             * The sender's debit is the balance check -- wallet_debit() in
+             * bootstrap/ledger.php. Comparing a balance read a moment earlier
+             * let two simultaneous transfers out of one account both pass, and
+             * the recipient's credit is an increment for the same reason: two
+             * transfers arriving together used to overwrite each other and
+             * lose one of them.
+             */
+            if (wallet_debit($pdo, $userID, $total_charge)) {
 
                 // Initiate transfer tracking ID
                 $trackingID = create_tracking_ID();
 
-                // Process transfer
-                $balance -= $total_charge;
-                $query->update('wallets', ['balance' => money_str($balance)], ['userID' => $userID]);
-                $query->update('wallets', ['balance' => money_str(money($recipientWallet['balance']) + $amount)], ['userID' => $recipientID]);
+                wallet_credit($pdo, $recipientID, $amount);
 
                 // Save to database
                 $initiate1 = $query->insert('transactions', ['userID' => $userID, 'amount' => money_str($total_charge), 'fees' => money_str($fees), 'account' => $recipient, 'trackingID' => $trackingID, 'type' => 'Transfer', 'status' => 'Success', 'method'=> $method]);

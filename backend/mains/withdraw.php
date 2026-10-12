@@ -179,13 +179,23 @@ if (isset($data)) {
             $pdo->beginTransaction();
 
             try {
-                $lockedWallet = wallet_for_update($pdo, $userID);
-                $balance = money($lockedWallet['balance'] ?? 0);
-
-                if ($lockedWallet === null || $balance < $amount) {
+                /**
+                 * The debit IS the check -- see wallet_debit() in
+                 * bootstrap/ledger.php.
+                 *
+                 * It used to read the balance, compare it here, then write the
+                 * difference back. A user who taps withdraw on three phones
+                 * because the first tap seems unresponsive sends three
+                 * requests that arrive together: all three read the same 500,
+                 * all three pass a check made in PHP, and all three pay out.
+                 * One statement that subtracts only when the balance covers it
+                 * leaves no window between the decision and the write, so the
+                 * second and third requests find nothing left to take.
+                 */
+                if (!wallet_debit($pdo, $userID, $amount)) {
                     $pdo->rollBack();
 
-                    error_log("[withdraw] user {$userID} refused: balance {$balance} is less than {$amount}");
+                    error_log("[withdraw] user {$userID} refused: balance does not cover {$amount}");
 
                     $fileGetContent->send_content([
                         'status' => 'Failed',
@@ -194,7 +204,6 @@ if (isset($data)) {
                     exit;
                 }
 
-                $query->update('wallets', ['balance' => money_str($balance - $amount)], ['userID' => $userID]);
                 $query->insert('transactions', ['userID' => $userID, 'amount' => money_str($amount), 'fees' => money_str($fees), 'account' => $account, 'trackingID' => $trackingID, 'type' => 'Withdraw', 'status' => 'Pending', 'method' => $method ]);
 
                 $pdo->commit();
