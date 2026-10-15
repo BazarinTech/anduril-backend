@@ -1,5 +1,9 @@
 <?php
 include 'includes/main.php';
+
+// Sums over the whole transactions table; this is the only page that shows
+// them, so main.php no longer charges every other page for them.
+extract(dashboard_totals($pdo));
 require_once __DIR__ . '/../lib/palpluss.php';
 
 /**

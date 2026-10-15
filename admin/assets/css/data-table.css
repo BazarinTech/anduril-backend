@@ -393,6 +393,48 @@
     .dt-note { flex: 0 1 auto; order: 0; text-align: right; }
 }
 
+/* -- Server-side filters ----------------------------------------------- */
+
+.dt-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.dt-filters input[type=search],
+.dt-filters select,
+.dt-filters input[type=date] {
+    height: 2.5rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--dt-border);
+    border-radius: 0.375rem;
+    background-color: var(--dt-surface-muted);
+    color: var(--dt-text);
+    font-size: 0.875rem;
+}
+
+.dt-filters input[type=search] { min-width: 16rem; flex: 1 1 16rem; }
+
+.dt-filters__date {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8125rem;
+    color: var(--dt-text-muted);
+}
+
+.dt-filters .dt-btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+.dt-pager {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.dt-pager .dt-btn { text-decoration: none; display: inline-flex; align-items: center; }
+
 /* -- Image field ------------------------------------------------------- */
 
 .dt-image {

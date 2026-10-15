@@ -1,4 +1,52 @@
-<?php include 'includes/main.php'?>
+<?php
+include 'includes/main.php';
+require_once __DIR__ . '/includes/transaction-search.php';
+
+/**
+ * The table below shows the most recent ADMIN_TABLE_LIMIT transactions, which
+ * is what an admin needs most days. When they need an older one -- "the
+ * customer says they deposited in March" -- this searches the whole table
+ * instead, using only indexed columns and a capped, keyset-paged query. See
+ * admin/includes/transaction-search.php for why each lookup is cheap.
+ */
+$tx_filters = [
+    'q'      => $_GET['q'] ?? '',
+    'type'   => $_GET['tx_type'] ?? '',
+    'status' => $_GET['tx_status'] ?? '',
+    'from'   => $_GET['from'] ?? '',
+    'to'     => $_GET['to'] ?? '',
+    'before' => $_GET['before'] ?? 0,
+];
+
+$tx_searching = transaction_search_active($tx_filters) || (int) $tx_filters['before'] > 0;
+$tx_result    = null;
+
+if ($tx_searching) {
+    try {
+        $tx_result = transaction_search($pdo, $tx_filters);
+        $transactions_records = $tx_result['rows'];
+    } catch (\Throwable $e) {
+        error_log('[transactions] search failed: ' . $e->getMessage());
+        $tx_result = ['rows' => [], 'has_more' => false, 'next_cursor' => null, 'criteria' => '', 'error' => 'The search could not be run. Please try again.'];
+        $transactions_records = [];
+    }
+}
+
+/** Rebuild the current query string with one value changed. */
+$tx_url = function (array $changes = []) {
+    $params = array_filter(array_merge([
+        'q'         => $_GET['q'] ?? '',
+        'tx_type'   => $_GET['tx_type'] ?? '',
+        'tx_status' => $_GET['tx_status'] ?? '',
+        'from'      => $_GET['from'] ?? '',
+        'to'        => $_GET['to'] ?? '',
+    ], $changes), static function ($v) { return $v !== '' && $v !== null; });
+
+    return 'transactions' . ($params ? '?' . http_build_query($params) : '');
+};
+
+$esc = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+?>
 <!DOCTYPE html>
 <html lang="en"  :dir="$store.app.direction" x-data="{ direction: $store.app.direction || 'ltr' }" x-bind:dir="direction" class="group/item" :data-mode="$store.app.mode" :data-sidebar="$store.app.sidebarMode">
 
@@ -66,7 +114,44 @@
                 <div class="flex flex-col gap-4 min-h-[calc(100vh-212px)]">
                     <div class="grid grid-cols-1 gap-4">
                         <div class="card">
-                        <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Transaction Records</h2>
+                            <h2 class="mb-1 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">Find a transaction</h2>
+                            <p class="mb-4 text-sm text-muted">
+                                Searches every transaction on record, not only the recent ones loaded below.
+                                Look one up by M-Pesa/provider reference, our own reference, email, phone,
+                                transaction ID or user ID &mdash; and narrow it by type, status or date.
+                            </p>
+                            <form method="get" action="transactions" class="dt-filters">
+                                <input type="search" name="q" value="<?= $esc($_GET['q'] ?? '') ?>"
+                                       placeholder="Reference, email, phone or ID" aria-label="Search transactions">
+                                <select name="tx_type" aria-label="Type">
+                                    <option value="">Any type</option>
+                                    <?php foreach (['Deposit','Withdraw','Transfer','Product Income','Commission','Bonus','Incentive'] as $t): ?>
+                                        <option value="<?= $esc($t) ?>" <?= ($_GET['tx_type'] ?? '') === $t ? 'selected' : '' ?>><?= $esc($t) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <select name="tx_status" aria-label="Status">
+                                    <option value="">Any status</option>
+                                    <?php foreach (['Success','Completed','Pending','Processing','Failed','Declined'] as $st): ?>
+                                        <option value="<?= $esc($st) ?>" <?= ($_GET['tx_status'] ?? '') === $st ? 'selected' : '' ?>><?= $esc($st) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <label class="dt-filters__date">From <input type="date" name="from" value="<?= $esc($_GET['from'] ?? '') ?>"></label>
+                                <label class="dt-filters__date">To <input type="date" name="to" value="<?= $esc($_GET['to'] ?? '') ?>"></label>
+                                <button type="submit" class="dt-btn dt-btn--primary">Search</button>
+                                <?php if ($tx_searching): ?>
+                                    <a class="dt-btn" href="transactions">Clear</a>
+                                <?php endif; ?>
+                            </form>
+
+                            <?php if ($tx_searching && $tx_result['error']): ?>
+                                <p class="mt-3 bg-danger/20 text-danger text-center rounded-lg py-2 px-2"><?= $esc($tx_result['error']) ?></p>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="card">
+                        <h2 class="mb-4 text-base font-semibold capitalize text-slate-800 dark:text-slate-100">
+                            <?= $tx_searching ? 'Search results' : 'Transaction Records' ?>
+                        </h2>
                             <?php
                             data_table([
                                 'id'         => 'transactions',
@@ -78,8 +163,11 @@
                                 'can_edit'   => $isEdit,
                                 'can_delete' => $isEdit,
                                 'search'     => ['email', 'account', 'type', 'status', 'description'],
-                                'note'       => $transactions_total > count($transactions_records) ? 'Showing the most recent ' . number_format(count($transactions_records)) . ' of ' . number_format($transactions_total) . ' transactions.' : '',
-                                'empty'      => 'No transactions recorded yet.',
+                                'note'       => $tx_searching
+                                    ? 'Matching ' . $tx_result['criteria'] . ' -- ' . number_format(count($transactions_records)) . ' shown'
+                                        . ($tx_result['has_more'] ? ', more available (use Older).' : '.')
+                                    : ($transactions_total > count($transactions_records) ? 'Showing the most recent ' . number_format(count($transactions_records)) . ' of ' . number_format($transactions_total) . ' transactions. Use the search above for older ones.' : ''),
+                                'empty'      => $tx_searching ? 'No transaction matches that search.' : 'No transactions recorded yet.',
                                 'columns'    => [
                                     ['label' => '#',     'field' => 'id'],
                                     ['label' => 'Email', 'field' => 'email', 'wide' => true,
@@ -105,6 +193,15 @@
                                 ],
                             ]);
                             ?>
+
+                            <?php if ($tx_searching): ?>
+                                <div class="dt-pager">
+                                    <a class="dt-btn" href="<?= $esc($tx_url()) ?>">&laquo; Newest</a>
+                                    <?php if ($tx_result['has_more'] && $tx_result['next_cursor']): ?>
+                                        <a class="dt-btn" href="<?= $esc($tx_url(['before' => $tx_result['next_cursor']])) ?>">Older &raquo;</a>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

@@ -147,7 +147,13 @@ CREATE TABLE IF NOT EXISTS transactions (
     KEY idx_tx_tracking (trackingID),
     KEY idx_tx_local    (local_ref),
     KEY idx_tx_type     (type),
-    KEY idx_tx_status   (status)
+    KEY idx_tx_status   (status),
+    -- Composite, ending in ID, so the admin's filtered lookups read a page
+    -- straight from one index instead of walking the primary key (007).
+    KEY idx_tx_type_id   (type, ID),
+    KEY idx_tx_status_id (status, ID),
+    KEY idx_tx_user_id   (userID, ID),
+    KEY idx_tx_time      (time)
 ) ENGINE=InnoDB;
 
 

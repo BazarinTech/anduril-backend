@@ -1,4 +1,11 @@
-<?php include 'includes/main.php'?>
+<?php
+include 'includes/main.php';
+
+// Built here rather than in main.php: the deposit and withdrawal columns are
+// sums over the whole transactions table, and this is the only page that
+// shows them.
+$wallets_records = wallet_records($pdo, $query);
+?>
 <!DOCTYPE html>
 <html lang="en"  :dir="$store.app.direction" x-data="{ direction: $store.app.direction || 'ltr' }" x-bind:dir="direction" class="group/item" :data-mode="$store.app.mode" :data-sidebar="$store.app.sidebarMode">
 

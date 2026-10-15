@@ -94,29 +94,34 @@ $scalar = function ($sql, array $params = []) use ($pdo) {
  */
 $admin_table_limit = max(50, (int) env('ADMIN_TABLE_LIMIT', 1000));
 
-//total balances
-$total_balance = (float) $scalar("SELECT COALESCE(SUM(balance), 0) FROM wallets");
+/**
+ * DASHBOARD FIGURES ARE BUILT ON DEMAND
+ *
+ * These are sums and counts over the whole transactions table. Only
+ * admin/dashboard.php shows them, and computing them here charged every admin
+ * page for it -- about 0.4s each at a quarter of a million transactions, on
+ * every click anywhere in the panel.
+ */
+function dashboard_totals(PDO $pdo)
+{
+    $scalar = function ($sql) use ($pdo) {
+        return $pdo->query($sql)->fetchColumn();
+    };
 
-//total deposits
-$total_deposits = (float) $scalar("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'Deposit' AND status = 'Success'");
-$dep_count      = (int) $scalar("SELECT COUNT(*) FROM transactions WHERE type = 'Deposit' AND status = 'Success'");
-
-//total withdrawals
-$total_withdrawals = (float) $scalar("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'Withdraw' AND status = 'Success'");
-$with_count        = (int) $scalar("SELECT COUNT(*) FROM transactions WHERE type = 'Withdraw' AND status = 'Success'");
-
-//total users
-$total_users = (int) $scalar("SELECT COUNT(*) FROM users");
-
-//total active users
-$total_active_users = (int) $scalar("SELECT COUNT(*) FROM users WHERE status = 'Active'");
-
-//users joined today
-// 86400 seconds in a day. This read 84600 -- a digit transposition that
-// shortened the window by half an hour. Combined with the timezone skew fixed
-// in Phase 2, this counter was reporting nonsense; it works now. The window is
-// applied by the database rather than by walking every user in PHP.
-$users_joined_today = (int) $scalar("SELECT COUNT(*) FROM users WHERE date_created >= (NOW() - INTERVAL 1 DAY)");
+    return [
+        'total_balance'      => (float) $scalar("SELECT COALESCE(SUM(balance), 0) FROM wallets"),
+        'total_deposits'     => (float) $scalar("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'Deposit' AND status = 'Success'"),
+        'dep_count'          => (int) $scalar("SELECT COUNT(*) FROM transactions WHERE type = 'Deposit' AND status = 'Success'"),
+        'total_withdrawals'  => (float) $scalar("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'Withdraw' AND status = 'Success'"),
+        'with_count'         => (int) $scalar("SELECT COUNT(*) FROM transactions WHERE type = 'Withdraw' AND status = 'Success'"),
+        'total_users'        => (int) $scalar("SELECT COUNT(*) FROM users"),
+        'total_active_users' => (int) $scalar("SELECT COUNT(*) FROM users WHERE status = 'Active'"),
+        // 86400 seconds in a day. This read 84600 -- a digit transposition
+        // that shortened the window by half an hour. The window is applied by
+        // the database rather than by walking every user in PHP.
+        'users_joined_today' => (int) $scalar("SELECT COUNT(*) FROM users WHERE date_created >= (NOW() - INTERVAL 1 DAY)"),
+    ];
+}
 
 /**
  * ===========================
@@ -145,23 +150,8 @@ foreach ($products as $row) {
     $products_by_id[(string) $row['ID']] = $row;
 }
 
-/**
- * Settled deposit and withdrawal totals per user, in one grouped query
- * instead of one query per wallet.
- */
-$settled_by_user = [];
-$stmt = $pdo->query(
-    "SELECT userID, type, COALESCE(SUM(amount), 0) AS total
-       FROM transactions
-      WHERE status = 'Success' AND type IN ('Deposit', 'Withdraw')
-      GROUP BY userID, type"
-);
 
-foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-    $settled_by_user[(string) $row['userID']][$row['type']] = (float) $row['total'];
-}
-
-// GET ALL TABLES RECORDS DETAILS// GET ALL TABLES RECORDS DETAILS
+// GET ALL TABLES RECORDS DETAILS
 
 //users records
 $users_records = [];
@@ -190,30 +180,63 @@ foreach ($users as $row) {
     ];
 }
 
-//wallets records
-$wallets_records = [];
-foreach ($wallets as $row) {
-    // Was two queries per wallet; both come from the lookups above.
-    $settled = $settled_by_user[(string) $row['userID']] ?? [];
-    $deps  = $settled['Deposit'] ?? 0;
-    $withs = $settled['Withdraw'] ?? 0;
+/**
+ * WALLET ROWS ARE BUILT ON DEMAND
+ *
+ * The deposit and withdrawal columns are per-user sums over the whole
+ * transactions table -- one grouped query, but one that reads every settled
+ * row. Only admin/wallets.php shows them, and it was being paid for on every
+ * admin page: at a quarter of a million transactions that is about a second
+ * added to each one. wallets.php calls this; nothing else does.
+ */
+function wallet_records(PDO $pdo, $query)
+{
+    $wallets = $query->select('wallets', '*', [], ['column' => 'ID', 'direction' => 'desc']);
 
-    $wallets_records[] = [
-        'id' => $row['ID'],
-        'email' => $email_of($row['userID']),
-        'balance' => 'Kes '.number_format($row['balance'], 2),
-        'income' => 'Kes '.number_format($row['income'], 2),
-        'downline' => 'Kes '.number_format($row['invite_income'], 2),
-        'withdrawals' => 'Kes '.number_format($withs, 2),
-        'deposits' => 'Kes '.number_format($deps, 2),
-        // Raw counterparts for the edit modal. The display values above are
-        // formatted strings, and the inline editor used to post them straight
-        // back -- MySQL received "Kes 1,200.00" for a DECIMAL column, which
-        // under STRICT_TRANS_TABLES is an error and otherwise truncates to 0.
-        'balance_raw' => $row['balance'],
-        'income_raw' => $row['income'],
-        'downline_raw' => $row['invite_income'],
-    ];
+    $emails = [];
+    foreach ($query->select('users') as $user) {
+        $emails[(string) $user['ID']] = $user['email'];
+    }
+
+    // Settled totals per user, in one grouped query rather than two per wallet.
+    $settled_by_user = [];
+    $stmt = $pdo->query(
+        "SELECT userID, type, COALESCE(SUM(amount), 0) AS total
+           FROM transactions
+          WHERE status = 'Success' AND type IN ('Deposit', 'Withdraw')
+          GROUP BY userID, type"
+    );
+
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $settled_by_user[(string) $row['userID']][$row['type']] = (float) $row['total'];
+    }
+
+    $wallets_records = [];
+
+    foreach ($wallets as $row) {
+        $settled = $settled_by_user[(string) $row['userID']] ?? [];
+        $deps  = $settled['Deposit'] ?? 0;
+        $withs = $settled['Withdraw'] ?? 0;
+
+        $wallets_records[] = [
+            'id' => $row['ID'],
+            'email' => $emails[(string) $row['userID']] ?? '(user removed)',
+            'balance' => 'Kes '.number_format($row['balance'], 2),
+            'income' => 'Kes '.number_format($row['income'], 2),
+            'downline' => 'Kes '.number_format($row['invite_income'], 2),
+            'withdrawals' => 'Kes '.number_format($withs, 2),
+            'deposits' => 'Kes '.number_format($deps, 2),
+            // Raw counterparts for the edit modal. The display values above are
+            // formatted strings, and the inline editor used to post them straight
+            // back -- MySQL received "Kes 1,200.00" for a DECIMAL column, which
+            // under STRICT_TRANS_TABLES is an error and otherwise truncates to 0.
+            'balance_raw' => $row['balance'],
+            'income_raw' => $row['income'],
+            'downline_raw' => $row['invite_income'],
+        ];
+    }
+
+    return $wallets_records;
 }
 
 //order records

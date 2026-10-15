@@ -97,9 +97,24 @@ if (isset($data['userID'])) {
                     if (wallet_debit($pdo, $userID, $amount)) {
                         $insert_orders = $query->insert('orders', ['type' => 'investment', 'userID' => $userID, 'remaining' => $product['duration'], 'returns' => '0', 'amount' => money_str($amount), 'prodID' => $prodID, 'duration' => $product['duration']]);
 
-                        if($prodID != 1){
-                            $update_user_status = $query->update('users', ['status' => 'Active'], ['ID' => $userID]);
-                        }
+                        /**
+                         * Buying a package activates the account.
+                         *
+                         * This used to skip product ID 1, from an assumption
+                         * that product 1 is a free trial and should not count.
+                         * Nothing marks a product as a trial -- the id was
+                         * hardcoded -- so on a catalogue where product 1 is an
+                         * ordinary package, whoever bought it stayed Inactive
+                         * for ever. That is not cosmetic: 'Active' direct
+                         * referrals are what the 'actives' bonuses and the
+                         * incentive tiers are counted against, so their
+                         * referrer was short-changed too.
+                         *
+                         * Any investment purchase activates the buyer now. If
+                         * a genuine free trial is ever added, it needs a flag
+                         * on the product rather than an id buried here.
+                         */
+                        $update_user_status = $query->update('users', ['status' => 'Active'], ['ID' => $userID]);
 
                         /**
                          * Upline commission, inside the same transaction as
